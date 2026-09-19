@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { MessageSquareIcon, TableIcon } from '@lucide/vue'
 
-import SocketStatusDot from '@/components/app/SocketStatusDot.vue'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -20,8 +19,6 @@ import { useAuthStore } from '@/stores/auth'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-
-const isDev = import.meta.env.DEV
 
 const nav = [
   { name: 'conversations', label: 'Chat', icon: MessageSquareIcon },
@@ -80,9 +77,7 @@ async function handleSignOut() {
         </Tooltip>
       </div>
 
-      <div class="flex flex-col items-center gap-3">
-        <SocketStatusDot v-if="isDev" />
-
+      <div class="flex flex-col items-center">
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
             <button
