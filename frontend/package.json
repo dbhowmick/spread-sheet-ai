@@ -12,7 +12,9 @@
     "lint": "run-s lint:*",
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
-    "format": "oxfmt src/"
+    "format": "oxfmt src/",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
@@ -23,6 +25,8 @@
     "@lucide/vue": "^1.47.0",
     "@rive-app/webgl2": "^2.42.2",
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/vue-table": "^9.2.4",
+    "@tanstack/vue-virtual": "^3.13.39",
     "@unovis/ts": "^1.7.0",
     "@unovis/vue": "^1.7.0",
     "@vee-validate/zod": "^4.15.1",
@@ -61,11 +65,13 @@
     "@types/phoenix": "^1.6.7",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/eslint-config-typescript": "^14.9.0",
+    "@vue/test-utils": "^2.5.1",
     "@vue/tsconfig": "^0.9.1",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-oxlint": "~1.83.0",
     "eslint-plugin-vue": "~10.11.0",
+    "happy-dom": "^20.14.5",
     "jiti": "^2.7.0",
     "npm-run-all2": "^9.0.3",
     "oxfmt": "^0.68.0",
@@ -74,6 +80,7 @@
     "typescript": "~6.0.3",
     "vite": "^8.3.0",
     "vite-plugin-vue-devtools": "^8.2.1",
+    "vitest": "^4.1.11",
     "vue-tsc": "^3.3.11"
   },
   "engines": {

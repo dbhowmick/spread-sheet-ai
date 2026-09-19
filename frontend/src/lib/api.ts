@@ -13,16 +13,13 @@
  *   matching the canonical envelope returned by `<%= @web %>.Api.Errors`.
  */
 import { getCsrfToken, resetCsrfToken } from './csrf'
+import { normalizeFromEnvelope, type NormalizedError, type RawErrorEnvelope } from './errors'
+
+// Re-exported so `import { type NormalizedError } from '@/lib/api'` keeps
+// working for every existing consumer.
+export type { NormalizedError } from './errors'
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
-
-export interface NormalizedError {
-  code: string
-  message?: string
-  field?: string
-  fieldErrors?: Record<string, string[]>
-  retryAfter?: number
-}
 
 export type ApiOk<T> = { ok: true; status: number; data: T }
 export type ApiErr = { ok: false; status: number; error: NormalizedError }
@@ -31,17 +28,6 @@ export type ApiResult<T> = ApiOk<T> | ApiErr
 interface RequestOptions {
   headers?: Record<string, string>
   signal?: AbortSignal
-}
-
-interface RawErrorEntry {
-  code?: string
-  message?: string
-  field?: string | null
-  meta?: Record<string, unknown>
-}
-
-interface RawErrorEnvelope {
-  errors?: RawErrorEntry[]
 }
 
 async function readJson(res: Response): Promise<unknown> {
@@ -57,51 +43,6 @@ async function readJson(res: Response): Promise<unknown> {
 function isInvalidCsrf(body: unknown): boolean {
   const envelope = body as RawErrorEnvelope | null
   return !!envelope?.errors?.some((e) => e?.code === 'invalid_csrf_token')
-}
-
-function normalizeFromEnvelope(envelope: RawErrorEnvelope, status: number): NormalizedError {
-  const entries = envelope.errors ?? []
-  const fieldErrors: Record<string, string[]> = {}
-  let topCode: string | undefined
-  let topMessage: string | undefined
-  let retryAfter: number | undefined
-
-  for (const e of entries) {
-    if (e.field) {
-      const key = e.field
-      fieldErrors[key] = fieldErrors[key] ?? []
-      fieldErrors[key].push(e.message ?? e.code ?? 'invalid')
-    } else if (!topCode) {
-      topCode = e.code
-      topMessage = e.message
-      const ra = (e.meta as { retry_after_seconds?: number } | undefined)?.retry_after_seconds
-      if (typeof ra === 'number') retryAfter = ra
-    }
-  }
-
-  if (!topCode) {
-    if (Object.keys(fieldErrors).length > 0) {
-      topCode = 'validation_failed'
-    } else {
-      topCode = defaultCodeForStatus(status)
-    }
-  }
-
-  const out: NormalizedError = { code: topCode }
-  if (topMessage) out.message = topMessage
-  if (Object.keys(fieldErrors).length > 0) out.fieldErrors = fieldErrors
-  if (retryAfter !== undefined) out.retryAfter = retryAfter
-  return out
-}
-
-function defaultCodeForStatus(status: number): string {
-  if (status === 401) return 'unauthenticated'
-  if (status === 403) return 'forbidden'
-  if (status === 404) return 'not_found'
-  if (status === 423) return 'account_locked'
-  if (status === 429) return 'rate_limited'
-  if (status >= 500) return 'server_error'
-  return 'unknown'
 }
 
 async function doFetch(

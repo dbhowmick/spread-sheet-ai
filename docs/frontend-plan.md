@@ -492,15 +492,15 @@ Vitest with happy-dom. The tests focus on the pure core:
 Each phase ends with `pnpm type-check`, `pnpm lint` and `pnpm test`
 green.
 
-| Phase | Deliverables | Done when | Backend dependency |
-|---|---|---|---|
-| **F1. Foundations** | Dependencies, Vitest, `types/contract.ts`, `AppLayout` + routes, socket and transport interfaces, mock skeleton | The shell navigates between the empty views. The socket connects against the backend's Phase 1, or the mock | none (mock) |
-| **F2. Sheet state core** | `apply-op`, `values`, `consistency`, `stores/sheets`, `useSheet`, mock sheet server | Unit tests cover contract §5.4 and §6 | none |
-| **F3. Read-only grid** | `useSheetTable`, `SheetGrid` (virtualized, sticky header and label), display cells, `SheetsView` + create dialog, `SheetView` | A 1,000 × 30 mock sheet scrolls smoothly. Participants and cues render from mock events | none |
-| **F4. Editing** | Navigation, editors, local preview, rollback, structure menus, new row, delete, move, copy/paste, toolbar | Every op can be done from the UI. The mock's simulated remote user's edits show up with cues. **Switch to the real backend at M1**, and two browser windows then stay in sync | **M1** |
-| **F5. Chat** | `stores/conversations`, `ChatPanel`, message rendering, `ConversationsView`, `WorkspaceView` with the split pane and sheet tabs | Chat works against the mock scripted agent. **Switch to the real backend at M2** | **M2** |
-| **F6. AI integration** | `focus_sheet` → sheet tabs, linked sheets list, `OpenSheetDialog`, tool call rendering | A `/demo` script on the mock, then real AI tools at **M3**, open and edit sheets live | **M3** |
-| **F7. Polish** | Empty and error states, reconnect indicator, a two-browser manual run, docs | The requirements §1 questions are demonstrable end to end | M3 |
+| Done | Phase | Deliverables | Done when | Backend dependency |
+|---|---|---|---|---|
+| [ ] | **F1. Foundations** | Dependencies, Vitest, `types/contract.ts`, `AppLayout` + routes, socket and transport interfaces, mock skeleton | The shell navigates between the empty views. The socket connects against the backend's Phase 1, or the mock | none (mock) |
+| [ ] | **F2. Sheet state core** | `apply-op`, `values`, `consistency`, `stores/sheets`, `useSheet`, mock sheet server | Unit tests cover contract §5.4 and §6 | none |
+| [ ] | **F3. Read-only grid** | `useSheetTable`, `SheetGrid` (virtualized, sticky header and label), display cells, `SheetsView` + create dialog, `SheetView` | A 1,000 × 30 mock sheet scrolls smoothly. Participants and cues render from mock events | none |
+| [ ] | **F4. Editing** | Navigation, editors, local preview, rollback, structure menus, new row, delete, move, copy/paste, toolbar | Every op can be done from the UI. The mock's simulated remote user's edits show up with cues. **Switch to the real backend at M1**, and two browser windows then stay in sync | **M1** |
+| [ ] | **F5. Chat** | `stores/conversations`, `ChatPanel`, message rendering, `ConversationsView`, `WorkspaceView` with the split pane and sheet tabs | Chat works against the mock scripted agent. **Switch to the real backend at M2** | **M2** |
+| [ ] | **F6. AI integration** | `focus_sheet` → sheet tabs, linked sheets list, `OpenSheetDialog`, tool call rendering | A `/demo` script on the mock, then real AI tools at **M3**, open and edit sheets live | **M3** |
+| [ ] | **F7. Polish** | Empty and error states, reconnect indicator, a two-browser manual run, docs | The requirements §1 questions are demonstrable end to end | M3 |
 
 ## 12. Risks
 

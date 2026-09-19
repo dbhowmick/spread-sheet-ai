@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+import AppLayout from '@/layouts/AppLayout.vue'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import OnboardingLayout from '@/layouts/OnboardingLayout.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -57,9 +58,41 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    name: 'home',
-    component: () => import('@/views/HomeView.vue'),
+    component: AppLayout,
+    // Merged into `to.meta` for every child, the same mechanism the
+    // /onboarding record already relies on.
     meta: { requiresAuth: true },
+    children: [
+      // Keeping the `home` name on an index redirect means the `guestOnly`
+      // branch of the guard below still resolves, so that audited code needs
+      // no edit. A redirect record's own meta is never consulted — vue-router
+      // resolves the redirect before running guards — so an unauthenticated
+      // hit on `/` reaches login with `?redirect=/conversations` rather than
+      // `?redirect=/`. Same destination.
+      { path: '', name: 'home', redirect: { name: 'conversations' } },
+      {
+        path: 'conversations',
+        name: 'conversations',
+        component: () => import('@/views/ConversationsView.vue'),
+      },
+      {
+        path: 'c/:conversationId',
+        name: 'workspace',
+        component: () => import('@/views/WorkspaceView.vue'),
+        props: true,
+      },
+      {
+        path: 'sheets',
+        name: 'sheets',
+        component: () => import('@/views/SheetsView.vue'),
+      },
+      {
+        path: 'sheets/:sheetId',
+        name: 'sheet',
+        component: () => import('@/views/SheetView.vue'),
+        props: true,
+      },
+    ],
   },
   {
     path: '/:pathMatch(.*)*',

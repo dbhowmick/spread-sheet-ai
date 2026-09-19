@@ -26,6 +26,11 @@ const MESSAGES: Record<string, string> = {
   csrf_stale: 'Your session expired. Please reload the page.',
   server_error: 'Something went wrong on our end. Please try again.',
   validation_failed: 'Please fix the errors below.',
+  not_found: "That item doesn't exist, or it was deleted.",
+  // Minted on the client by the channel transport, so no server `message`
+  // ever accompanies these two.
+  timeout: 'The server did not respond. Your change may not have been saved.',
+  internal_error: 'Something went wrong on our end. Please try again.',
   unknown: 'Something went wrong. Please try again.',
 }
 

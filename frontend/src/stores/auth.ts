@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 import { api, type NormalizedError } from '@/lib/api'
 import { MODE } from '@/lib/auth-mode'
+import { disconnectSocket } from '@/lib/socket'
 import type { AuthMember, AuthOrganization, AuthUser, MePayload } from '@/types/auth'
 
 interface MeResponse {
@@ -101,11 +102,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function signOut(): Promise<void> {
     await api.delete<void>('/api/sessions/current')
+    disconnectSocket()
     clearState()
   }
 
   async function signOutEverywhere(): Promise<void> {
     await api.post<void>('/api/sessions/revoke-all')
+    disconnectSocket()
     clearState()
   }
 
