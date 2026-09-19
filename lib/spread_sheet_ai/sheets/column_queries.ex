@@ -9,6 +9,10 @@ defmodule SpreadSheetAi.Sheets.ColumnQueries do
     where(query, [c], c.sheet_id == ^sheet_id)
   end
 
+  def by_id(query \\ Column, id) do
+    where(query, [c], c.id == ^id)
+  end
+
   def ordered(query \\ Column) do
     order_by(query, [c], asc: c.position)
   end

@@ -65,6 +65,7 @@ lib/spread_sheet_ai/
   sheets/state.ex                       in-memory sheet struct + indexes
   sheets/op.ex                          parse and validate op maps into typed structs
   sheets/values.ex                      casting and type conversion per column_type
+  sheets/reads.ex                       pure reads over State (describe, read_rows, read_cells, find_rows)
   sheets/engine.ex                      pure: apply(State, Op) -> {:ok, State, AppliedOp, effects} | {:error, …}
   sheets/persister.ex                   effects -> Ecto.Multi (+ version bump + change log)
   sheets/server.ex                      GenServer per sheet (idle stop)
@@ -239,10 +240,9 @@ Multi steps, in order. The full list is in the `Sheets.Engine` moduledoc:
   index changed. One generic effect covers inserts, moves and deletes, and
   the Persister runs it as a single `UPDATE … FROM unnest(ids, positions)`.
 
-**Phase 4 note: label swaps.** `set_cells` may swap two labels in one op
-(contract §6 clarifications). The `(sheet_id, label_key)` unique index is
-not deferrable, so the Persister must write label changes in two steps,
-for example setting a temporary `label_key` (such as the row id) first.
+**Label swaps.** `set_cells` may swap two labels in one op (contract §6
+clarifications). The `(sheet_id, label_key)` unique index is not
+deferrable, so the Persister writes label changes in two steps (§5).
 
 The engine enforces every rule in contract §6:
 - ids exist
@@ -261,47 +261,77 @@ tool.
 
 ## 5. Sheet processes
 
-**`Sheets.Server`** is a GenServer, `restart: :transient`, registered via
+**`Sheets.Server`** is a GenServer, `restart: :temporary`, registered via
 `{:via, Registry, {SpreadSheetAi.Sheets.Registry, sheet_id}}`. It is started
 under the DynamicSupervisor `SpreadSheetAi.Sheets.ServerSupervisor`.
 
-- **`init/1`** loads the sheet, its columns and its rows into `State`. It
-  uses `handle_continue` so the load doesn't block the caller. If the sheet
-  doesn't exist, it stops with `:not_found`.
+- **Why `:temporary`:** servers start lazily on the next call, so
+  restarting a crashed one adds nothing. A sheet that crashed on every load
+  would otherwise use up the supervisor's restart limit and stop every
+  other sheet's server with it.
+- **`init/1`** loads the sheet, its columns and its rows into `State` in
+  `handle_continue`, so starting a server never blocks the
+  DynamicSupervisor.
+  - `State` also carries the snapshot metadata (`owner` as
+    `%{id, display_name}`, `inserted_at`, `updated_at`). The engine ignores
+    these fields.
+  - If the sheet doesn't exist, the server answers its first call with
+    `not_found` and stops with `{:shutdown, :not_found}`.
 - **`apply_op(sheet_id, op, actor, opts)`** is a `call`:
   1. `Engine.apply`
-  2. `Persister.run(effects, sheet_id, new_version, applied_op, actor, opts)`,
-     which runs in one `Repo.transaction`. The version bump uses
-     `UPDATE sheets SET version = version + 1, updated_at = now() WHERE id = ? AND version = ?`,
-     so if the in-memory version is out of step with the DB, the transaction
-     fails.
+  2. `Persister.apply(sheet_id, new_version, effects, applied_op, actor, opts)`,
+     which runs in one `Repo.transaction`:
+     - The version bump comes first, using
+       `UPDATE sheets SET version = version + 1, updated_at = now() WHERE id = ? AND version = ?`.
+       This locks the sheet row, and if the in-memory version is out of
+       step with the DB, the transaction fails with `:version_conflict`.
+     - When an op relabels two or more rows, their `label_key`s are first
+       set to a temporary `" " <> id`, which no trimmed label can equal.
+       The label unique index isn't deferrable, so this is how label swaps
+       are written.
+     - Then come the effects and the change-log row.
   3. On commit, it replaces its state, broadcasts
-     `{:op_applied, %{version, applied_op, actor, client_op_id}}` on PubSub
-     topic `"sheet_events:<id>"`, and replies `{:ok, version, applied_op}`.
-  4. On a DB error, it replies `{:error, :internal_error, …}` and **stops**,
-     so the next call reloads a fresh state from Postgres.
-- **Reads** are `call`s served from memory, never from the DB:
+     `{:op_applied, %{sheet_id, version, applied_op, actor, client_op_id}}`
+     on PubSub topic `"sheet_events:<id>"`, and replies
+     `{:ok, version, applied_op}`.
+  4. If the Persister returns an error, the server replies
+     `{:error, :internal_error, …}` and **stops** with
+     `{:shutdown, :persist_failed}`, so the next call reloads a fresh
+     state from Postgres. An exception crashes the server, and the
+     transaction rolls back. Either way nothing is broadcast.
+- **Reads** are `call`s served from memory, never from the DB. They are
+  pure functions in `Sheets.Reads`, which refer to rows by label and to
+  columns by name, as the tools do:
   - `snapshot/1`
   - `describe/1`: columns, row count and version
   - `read_rows/2`: offset, limit and optional columns, capped by
     `read_max_rows`
-  - `read_cells/2`: row labels × column names
+  - `read_cells/3`: row labels × column names
   - `find_rows/2`: case-insensitive substring match on labels, capped
 - **Idle stop:** every reply returns a timeout of `idle_timeout` (config,
   15 minutes by default). `handle_info(:timeout)` returns
   `{:stop, :normal, state}`.
 
 **`Sheets.Runtime.call(sheet_id, msg)`**:
-- It calls `ensure_started(sheet_id)`, which is `DynamicSupervisor.start_child`
-  treating `{:already_started, pid}` as success, and then
-  `GenServer.call`.
-- If the server exits during the call with `:noproc` or `:normal`, because
-  it stopped from idle at that moment, it retries once.
+- It calls `ensure_started(sheet_id)`, which looks the server up through
+  its `:via` name (this skips a server that has exited but isn't
+  unregistered yet). If there is none, it calls
+  `DynamicSupervisor.start_child`, treating `{:already_started, pid}` as
+  success. Then it makes the `GenServer.call`.
+- **Retries:** if the server exits during the call with `:noproc`,
+  `:normal` or `{:shutdown, _}`, it stopped before handling the call, so
+  the call is retried once. This covers an idle stop or a persist failure
+  that races with the call.
+- **Other exits:** `{:shutdown, :not_found}` becomes `not_found`, and any
+  other exit becomes `internal_error`.
+- **Malformed ids:** the `Sheets` context checks the sheet id with
+  `Ecto.UUID.cast` first, so a malformed id is `not_found` and no server
+  is started.
 
 **Creating a sheet** skips the server:
-1. `Sheets.create_sheet/3` runs `Engine.create` plus the Persister in one
-   transaction. This writes version 1 and the first change-log row.
-2. It returns the snapshot. The server starts later, on first use.
+1. `Sheets.create_sheet/3` runs `Engine.create` plus `Persister.create` in
+   one transaction. This writes version 1 and the first change-log row.
+2. It returns the `State`. The server starts later, on first use.
 
 **Why this is enough for RT-4 and P-5:**
 - Versions only go up inside a committed transaction.
@@ -602,7 +632,7 @@ backend.
 | **1. Foundations** | Scope, Presence, UserSocket and the socket-token endpoint, `Accounts.fetch_active_session/1`, config blocks | Socket connects with a valid token and is refused without one (tests) | ✅ 2026-09-20 |
 | **2. Sheets data model** | 4 migrations (`sheets`, `sheet_columns`, `sheet_rows`, `sheet_changes`), schemas and `_queries` modules, `SheetsFixtures` | Migrations run and roll back. Tests show the unique indexes hold: column names, row labels, one label column per sheet, one change per version | ✅ 2026-09-20 |
 | **3. Sheet engine** | `State`, `Op`, `Values`, `Engine` (`create` and all 10 ops) | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) | ✅ 2026-09-20 |
-| **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ⬜ |
+| **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ✅ 2026-09-20 |
 | **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ⬜ |
 | **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ⬜ |
 | **7. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Scripted-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** | ⬜ |
@@ -617,14 +647,16 @@ phase 4.
 - **Engine and Values:** pure unit tests, table-driven over ops and rules.
   These form most of the suite.
 - **Server and Runtime:**
-  - `start_supervised!` and `DataCase`.
+  - `DataCase` with `async: false`. The servers run under the global
+    supervisor and share the sandbox connection, and `DataCase` stops
+    every sheet server when a sync test exits.
   - Crash recovery: kill the server with `Process.exit(pid, :kill)` and
-    assert that a reload gives the same version.
-  - Idle stop: set a 10 ms idle timeout and use `Process.monitor` plus
-    `assert_receive {:DOWN, …}`.
+    assert that the reloaded snapshot equals the one before.
+  - Idle stop: the test config's 200 ms idle timeout, with
+    `Process.monitor` plus `assert_receive {:DOWN, …}`.
   - Concurrency: 50 concurrent `apply_op` calls through
-    `Task.async_stream`, then assert that versions go 1..50 and the change
-    log has no gaps.
+    `Task.async_stream`, then assert that the versions are consecutive and
+    the change log has no gaps.
 - **Channels:** `Phoenix.ChannelTest` with a `SocketCase` helper that
   signs a token for a fixture user. Assert on `assert_push` and
   `assert_broadcast`.

@@ -9,6 +9,10 @@ defmodule SpreadSheetAi.Sheets.SheetQueries do
     where(query, [s], s.id == ^id)
   end
 
+  def with_version(query \\ Sheet, version) do
+    where(query, [s], s.version == ^version)
+  end
+
   def newest_first(query \\ Sheet) do
     order_by(query, [s], desc: s.updated_at, desc: s.id)
   end

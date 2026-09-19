@@ -7,10 +7,15 @@ defmodule SpreadSheetAi.Sheets.State do
   live only in `columns_by_id` / `rows_by_id`. A row's `values` excludes the
   label, as in `sheet_rows`; `row_cells/2` adds it back.
 
+  `owner`, `inserted_at` and `updated_at` are sheet metadata for snapshots.
+  The engine never reads or changes them; `load/3` and the sheet server
+  fill them in.
+
   The functions that change a State (`insert_*`, `update_*`, `delete_*`,
   `move`) keep every index in step; the engine only goes through them.
   """
 
+  alias SpreadSheetAi.Accounts.User
   alias SpreadSheetAi.Sheets.{Column, Key, Row, Sheet}
 
   @type column :: %{
@@ -20,12 +25,16 @@ defmodule SpreadSheetAi.Sheets.State do
           is_label: boolean()
         }
   @type row :: %{id: Ecto.UUID.t(), label: String.t(), values: %{Ecto.UUID.t() => term()}}
+  @type owner :: %{id: Ecto.UUID.t(), display_name: String.t() | nil}
 
   @type t :: %__MODULE__{
           id: Ecto.UUID.t() | nil,
           name: String.t() | nil,
           owner_id: Ecto.UUID.t() | nil,
+          owner: owner() | nil,
           version: non_neg_integer(),
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil,
           label_column_id: Ecto.UUID.t() | nil,
           column_order: [Ecto.UUID.t()],
           columns_by_id: %{Ecto.UUID.t() => column()},
@@ -38,7 +47,10 @@ defmodule SpreadSheetAi.Sheets.State do
   defstruct id: nil,
             name: nil,
             owner_id: nil,
+            owner: nil,
             version: 0,
+            inserted_at: nil,
+            updated_at: nil,
             label_column_id: nil,
             column_order: [],
             columns_by_id: %{},
@@ -52,7 +64,10 @@ defmodule SpreadSheetAi.Sheets.State do
   def new(id, name, owner_id, version \\ 0),
     do: %__MODULE__{id: id, name: name, owner_id: owner_id, version: version}
 
-  @doc "Builds a State from a sheet and its column and row records (in any order)."
+  @doc """
+  Builds a State from a sheet and its column and row records (in any order).
+  The owner is taken from `sheet.owner` when it is preloaded.
+  """
   @spec load(Sheet.t(), [Column.t()], [Row.t()]) :: t()
   def load(%Sheet{} = sheet, columns, rows) do
     columns =
@@ -65,11 +80,22 @@ defmodule SpreadSheetAi.Sheets.State do
       |> Enum.sort_by(& &1.position)
       |> Enum.map(&Map.take(&1, [:id, :label, :values]))
 
-    sheet.id
-    |> new(sheet.name, sheet.owner_id, sheet.version)
+    state = new(sheet.id, sheet.name, sheet.owner_id, sheet.version)
+
+    %{
+      state
+      | owner: owner(sheet.owner),
+        inserted_at: sheet.inserted_at,
+        updated_at: sheet.updated_at
+    }
     |> insert_columns(columns, 0)
     |> insert_rows(rows, 0)
   end
+
+  @doc "The `owner` of a State, from a user."
+  @spec owner(User.t() | term()) :: owner() | nil
+  def owner(%User{} = user), do: %{id: user.id, display_name: user.display_name}
+  def owner(_not_loaded), do: nil
 
   # ----- Reads -----
 

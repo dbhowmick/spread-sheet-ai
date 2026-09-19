@@ -13,6 +13,9 @@ defmodule SpreadSheetAi.Application do
       {DNSCluster, query: Application.get_env(:spread_sheet_ai, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: SpreadSheetAi.PubSub},
       SpreadSheetAiWeb.Presence,
+      # One SpreadSheetAi.Sheets.Server per open sheet, looked up by sheet id.
+      {Registry, keys: :unique, name: SpreadSheetAi.Sheets.Registry},
+      {DynamicSupervisor, name: SpreadSheetAi.Sheets.ServerSupervisor, strategy: :one_for_one},
       {Oban, Application.fetch_env!(:spread_sheet_ai, Oban)},
       # Start a worker by calling: SpreadSheetAi.Worker.start_link(arg)
       # {SpreadSheetAi.Worker, arg},

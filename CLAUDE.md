@@ -138,6 +138,29 @@ pnpm format       # oxfmt src/
 
 `mix phx.server` spawns `node vite-dev.mjs` via the Phoenix watcher in `config/dev.exs`. Vite serves modules from `:4001`; `root.html.heex` injects `<script src="//{request_host}:4001/src/main.ts">` so the browser pulls everything live. Edits to `.vue`, `.ts`, or `.css` files HMR without a full reload. `.heex` / router changes still trigger a Phoenix `live_reload`.
 
+## Sheets runtime
+
+`SpreadSheetAi.Sheets` is the one API for sheets. The channels, REST and
+the AI tools all call it. Details are in `docs/backend-plan.md` §4–§5.
+
+- **Pure core:** `Sheets.Op.parse/1` checks an op's shape, and
+  `Sheets.Engine` applies it to an in-memory `Sheets.State`, returning the
+  `AppliedOp` plus DB effects. `Sheets.Reads` holds the pure reads.
+- **One process per open sheet:** `Sheets.Server`, registered in
+  `Sheets.Registry` and supervised by `Sheets.ServerSupervisor`,
+  `restart: :temporary`. It is started lazily by `Sheets.Runtime` and
+  stops after `idle_timeout`.
+- **Every op:** engine → `Sheets.Persister` (one transaction: version bump,
+  effects, change-log row) → replace state → broadcast
+  `{:op_applied, %{sheet_id, version, applied_op, actor, client_op_id}}`
+  on `Sheets.topic(id)` (`"sheet_events:<id>"`, see `Sheets.subscribe/1`).
+- **Errors** everywhere are `{:error, code_atom, message, meta}`, using
+  contract §8 codes.
+- **Tests that start sheet servers must be `async: false`.** The servers
+  share the sandbox connection, and `DataCase` stops them all when a sync
+  test exits. Use `SheetsFixtures.created_sheet_fixture/1` for sheets
+  made the way the app makes them.
+
 ## Background jobs (Oban)
 
 Oban runs in a two-release topology — queues split by `RELEASE_NAME` in `config/runtime.exs`:

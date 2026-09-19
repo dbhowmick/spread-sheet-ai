@@ -38,6 +38,26 @@ defmodule SpreadSheetAi.DataCase do
   def setup_sandbox(tags) do
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(SpreadSheetAi.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+
+    # Registered last so it runs first: no sheet server outlives the sandbox.
+    unless tags[:async], do: on_exit(&stop_sheet_servers/0)
+  end
+
+  @doc """
+  Stops every sheet server. Sheet servers run under a global supervisor, so
+  tests that start them must be `async: false` (they share the sandbox
+  connection); ExUnit never runs those alongside async tests, so stopping
+  all of them is safe.
+  """
+  def stop_sheet_servers do
+    supervisor = SpreadSheetAi.Sheets.ServerSupervisor
+
+    for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(supervisor),
+        is_pid(pid) do
+      DynamicSupervisor.terminate_child(supervisor, pid)
+    end
+
+    :ok
   end
 
   @doc """

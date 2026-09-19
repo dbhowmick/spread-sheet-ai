@@ -1,12 +1,16 @@
 defmodule SpreadSheetAi.SheetsFixtures do
   @moduledoc """
-  Test fixtures for sheets, columns, rows and change-log entries. They insert
-  straight through the schema changesets; switch `sheet_fixture/1` to
-  `Sheets.create_sheet/3` once the context exists (Phase 4).
+  Test fixtures for sheets, columns, rows and change-log entries.
+
+  `created_sheet_fixture/1` creates a sheet the way the app does, through
+  `Sheets.create_sheet/3` (version 1 and its change-log entry). The other
+  fixtures insert straight through the schema changesets, for schema tests
+  that need rows the engine would never write.
   """
 
   alias SpreadSheetAi.AuthFixtures
   alias SpreadSheetAi.Repo
+  alias SpreadSheetAi.Sheets
 
   alias SpreadSheetAi.Sheets.{
     Change,
@@ -17,6 +21,18 @@ defmodule SpreadSheetAi.SheetsFixtures do
     RowQueries,
     Sheet
   }
+
+  @doc """
+  Creates a sheet through `Sheets.create_sheet/3` and returns its `State`.
+  `params` are `parse_create` params (string keys; a unique `"name"` is
+  filled in). Pass `owner: user` to reuse an owner; otherwise one is created.
+  """
+  def created_sheet_fixture(params \\ %{}) do
+    {owner, params} = Map.pop_lazy(params, :owner, &AuthFixtures.verified_user_fixture/0)
+    params = Map.merge(%{"name" => "Sheet #{AuthFixtures.unique()}"}, params)
+    {:ok, state} = Sheets.create_sheet(params, owner)
+    state
+  end
 
   @doc """
   Inserts a sheet with a `"Line item"` text label column at position 0.

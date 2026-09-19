@@ -29,7 +29,7 @@ defmodule SpreadSheetAi.Sheets.Engine do
   alias SpreadSheetAi.Sheets.Engine.{Checks, Columns, Rows}
   alias SpreadSheetAi.Sheets.{Key, Op, State}
 
-  @type limits :: %{write_max_cells: pos_integer()}
+  @type limits :: %{:write_max_cells => pos_integer(), optional(atom()) => term()}
   @type effect :: tuple()
   @type error :: {:error, atom(), String.t(), map()}
   @type result :: {:ok, State.t(), map(), [effect()]} | error()
