@@ -15,8 +15,15 @@ defmodule SpreadSheetAiWeb.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
 
+  # `auth_token` must sit at the TOP level, not inside `websocket:`.
+  # Phoenix.Endpoint.socket_paths/4 reads `opts[:auth_token]` from here and
+  # then `Keyword.put`s it onto the websocket config, so a nested value is
+  # silently overwritten with nil and `connect_info` arrives without the
+  # token. ChannelCase injects connect_info directly, so channel tests pass
+  # either way — only a real handshake catches it.
   socket "/socket", SpreadSheetAiWeb.UserSocket,
-    websocket: [auth_token: true],
+    auth_token: true,
+    websocket: true,
     longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.
