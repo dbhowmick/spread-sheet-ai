@@ -48,8 +48,9 @@ Schemas never call `Repo` — every `<thing>.ex` has a sibling `<thing>_queries.
 
 **JSON API** under `/api/`:
 - Public: `POST /api/auth/register`, `POST /api/sessions`, `POST /api/me/{password-reset,password-reset/confirm,email-verification/confirm,email-verification/resend}`
-- Authenticated: `GET /api/me`, `GET /api/socket_token`, `DELETE /api/sessions/current`, `POST /api/sessions/revoke-all`, `POST /api/me/{switch-organization,change-password}`, `POST /api/organizations`
+- Authenticated: `GET /api/sheets`, `GET /api/sheets/:id`, `POST /api/sheets` (`SheetController`, contract §3), `GET /api/me`, `GET /api/socket_token`, `DELETE /api/sessions/current`, `POST /api/sessions/revoke-all`, `POST /api/me/{switch-organization,change-password}`, `POST /api/organizations`
 - WebSocket `/socket` (`SpreadSheetAiWeb.UserSocket`): the SPA fetches `GET /api/socket_token` (a 24 h `Phoenix.Token` over `{user_id, session_id}`, see `SpreadSheetAiWeb.SocketToken`) and connects with it as the Phoenix `auth_token`. `connect/3` re-checks the session via `Accounts.fetch_active_session/1`; `id/1` is `"user_socket:<session_id>"`. Channel tests use `SpreadSheetAiWeb.ChannelCase.connect_user/1`.
+- Channel `sheet:<id>` (`SpreadSheetAiWeb.SheetChannel`, contract §5): join snapshot, `op` / `snapshot` events, `op_applied` and `participants` pushes. Contract serializers live in `SpreadSheetAiWeb.SheetJSON` (`lib/spread_sheet_ai_web/json/`), shared with REST. The sheets context's `{:error, code, message, meta}` becomes the error envelope via `Api.Errors.from_business/1`.
 - All `{:error, _}` from contexts flow through `SpreadSheetAiWeb.Api.FallbackController` → canonical envelope via `SpreadSheetAiWeb.Api.Errors`.
 
 **SPA**:

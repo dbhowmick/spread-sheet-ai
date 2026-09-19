@@ -50,6 +50,8 @@ defmodule SpreadSheetAiWeb.Router do
     post "/me/switch-organization", SessionsController, :switch_organization
     post "/me/change-password", PasswordController, :change
     post "/organizations", OrganizationsController, :create
+
+    resources "/sheets", SheetController, only: [:index, :show, :create]
   end
 
   # Declare additional /api scopes ABOVE this comment; the SPA catch-all

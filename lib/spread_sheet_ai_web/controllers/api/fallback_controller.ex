@@ -74,6 +74,19 @@ defmodule SpreadSheetAiWeb.Api.FallbackController do
     respond(conn, :unauthorized, Errors.from_code("unauthenticated"))
   end
 
+  # The sheets context's `{:error, code, message, meta}`.
+  def call(conn, {:error, code, message, meta} = error)
+      when is_atom(code) and is_binary(message) and is_map(meta) do
+    status =
+      case code do
+        :not_found -> :not_found
+        :internal_error -> :internal_server_error
+        _ -> :unprocessable_entity
+      end
+
+    respond(conn, status, Errors.from_business(error))
+  end
+
   def call(conn, {:error, %Ecto.Changeset{} = changeset}) do
     respond(conn, :unprocessable_entity, Errors.from_changeset(changeset))
   end

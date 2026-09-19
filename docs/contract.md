@@ -223,6 +223,10 @@ not finish. Render a marker when it is present.
 | `op` | `{"client_op_id": "uuid", "op": Op}` | ok `{"version": int}` · error `{"errors": [...]}` |
 | `snapshot` | `{}` | ok `{"sheet": Sheet}` |
 
+`client_op_id` may be `null` or left out, for example for ops that no
+local preview waits on. If it is present, it must be a UUID; anything else
+is `invalid_op`.
+
 ### 5.3 Server → client
 
 | Event | Payload |

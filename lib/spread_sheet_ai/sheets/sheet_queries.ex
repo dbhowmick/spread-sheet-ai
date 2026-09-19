@@ -20,4 +20,13 @@ defmodule SpreadSheetAi.Sheets.SheetQueries do
   def with_owner(query \\ Sheet) do
     preload(query, :owner)
   end
+
+  @doc "Selects `%{sheet: sheet, row_count: n, column_count: n}`."
+  def with_counts(query \\ Sheet) do
+    select(query, [s], %{
+      sheet: s,
+      row_count: fragment("(SELECT count(*) FROM sheet_rows r WHERE r.sheet_id = ?)", s.id),
+      column_count: fragment("(SELECT count(*) FROM sheet_columns c WHERE c.sheet_id = ?)", s.id)
+    })
+  end
 end

@@ -355,23 +355,46 @@ under the DynamicSupervisor `SpreadSheetAi.Sheets.ServerSupervisor`.
   can disconnect its socket later.
 
 **`SheetChannel`, `"sheet:<id>"`:**
-- **join:** `Sheets.snapshot(id)` → `{:ok, %{sheet: SheetJSON.sheet(s)}, socket}`.
-  After joining, it subscribes to `"sheet_events:<id>"`, tracks presence
-  (`Presence.track(self(), "sheet:<id>", user_id, %{})`), and pushes
-  `participants`.
+- **join:**
+  1. `Sheets.subscribe(id)` **before** taking the snapshot. An op committed
+     in between is then pushed too, and the client ignores versions it
+     already has (contract §5.4).
+  2. `Sheets.snapshot(id)` → `{:ok, %{sheet: SheetJSON.sheet(s)}, socket}`.
+     An unknown or malformed id replies `not_found`.
+  3. After joining, it tracks presence and pushes `participants`.
 - **`handle_in("op")`:**
-  1. `Op.parse`
-  2. `Sheets.apply_op(id, op, Actor.user(user), client_op_id: …)`
-  3. Reply `{:ok, %{version}}`, or `{:error, Errors.from_code(code, message, meta)}`.
-- **`handle_in("snapshot")`** replies with a new snapshot.
+  1. Check `client_op_id`. It may be missing or `null`, and anything that
+     isn't a UUID is `invalid_op`.
+  2. `Op.parse`
+  3. `Sheets.apply_op(id, op, Actor.user(user), client_op_id: …)`
+  4. Reply `{:ok, %{version}}`, or `{:error, Errors.from_business(error)}`.
+     `from_business/1` turns the context's `{:error, code, message, meta}`
+     into the standard envelope, moving `meta.field` to `field`.
+- **`handle_in("snapshot")`** replies with a new snapshot, for resyncing
+  after a version gap.
 - **`handle_info({:op_applied, ev})`** pushes `op_applied` via `SheetJSON`.
-- **Presence:** `intercept ["presence_diff"]`. `handle_out` recomputes the
-  user list from `Presence.list/1`, batch-loads the `UserRef`s, and pushes
-  `participants`.
+- **Presence:**
+  - `Presence.track(socket, user_id, %{user: user_ref})`. Keys are user
+    ids, so several tabs count as one participant.
+  - `intercept ["presence_diff"]`, and `handle_out` rebuilds the list from
+    `Presence.list/1` and pushes `participants`.
+  - The `UserRef` travels in the presence meta, so no users are loaded on
+    each diff.
 
-**REST** (contract §3): `SheetController.index/show/create` and
-`ConversationController.index/show/create`, with routes in the existing
-`scope "/api", … pipe_through [:api, :require_auth]`.
+**`SheetJSON`** (`lib/spread_sheet_ai_web/json/sheet_json.ex`) holds the
+pure contract serializers shared by the channel and REST: `sheet`,
+`summary`, `op_applied`, `actor`, `user_ref` and `participants`. A
+`UserRef`'s `display_name` falls back to the email (`User.display_name/1`).
+
+**REST** (contract §3):
+- `SheetController.index/show/create` sit in the authenticated `/api`
+  scope.
+  - `index` reads `Sheets.list_sheets/0`: one query with correlated row
+    and column counts, and no sheet servers started.
+  - `create` passes on only the §3 fields.
+- `FallbackController` maps the context's 4-tuple errors to statuses:
+  `not_found` → 404, `internal_error` → 500, and anything else → 422.
+- `ConversationController` comes in Phase 7.
 
 ## 7. Sagents integration
 
@@ -633,7 +656,7 @@ backend.
 | **2. Sheets data model** | 4 migrations (`sheets`, `sheet_columns`, `sheet_rows`, `sheet_changes`), schemas and `_queries` modules, `SheetsFixtures` | Migrations run and roll back. Tests show the unique indexes hold: column names, row labels, one label column per sheet, one change per version | ✅ 2026-09-20 |
 | **3. Sheet engine** | `State`, `Op`, `Values`, `Engine` (`create` and all 10 ops) | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) | ✅ 2026-09-20 |
 | **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ✅ 2026-09-20 |
-| **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ⬜ |
+| **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ✅ 2026-09-20 |
 | **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ⬜ |
 | **7. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Scripted-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** | ⬜ |
 | **8. AI tools** → **M3** | SheetTools middleware, 16 tools, system prompt, linking and focus events, choosing the default model (§7.4) | Tool unit tests against a real sheet. A scripted-model test where a tool call changes a sheet: `op_applied` reaches a sheet subscriber, and `focus_sheet` plus `sheets` reach conversation subscribers (AI-1…AI-7, ST-1…ST-3). The default model is recorded in config | ⬜ |

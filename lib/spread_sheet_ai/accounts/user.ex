@@ -41,6 +41,11 @@ defmodule SpreadSheetAi.Accounts.User do
     timestamps()
   end
 
+  @doc "The name to show for a user: `display_name`, or the email when it is not set."
+  @spec display_name(t()) :: String.t()
+  def display_name(%__MODULE__{display_name: name}) when is_binary(name) and name != "", do: name
+  def display_name(%__MODULE__{primary_email: email}), do: email
+
   @doc "Changeset for arbitrary profile updates (display_name, avatar_url)."
   def changeset(user, attrs) do
     user

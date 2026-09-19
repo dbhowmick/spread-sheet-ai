@@ -78,6 +78,14 @@ defmodule SpreadSheetAiWeb.Api.Errors do
     )
   end
 
+  # The sheets context's `{:error, code, message, meta}` (contract §8 codes).
+  # A `:field` in meta becomes the entry's `field`.
+  def from_business({:error, code, message, meta})
+      when is_atom(code) and is_binary(message) and is_map(meta) do
+    {field, meta} = Map.pop(meta, :field)
+    from_code(code, message: message, field: field, meta: meta)
+  end
+
   def from_business({:error, %Ecto.Changeset{} = cs}), do: from_changeset(cs)
   def from_business({:error, reason}) when is_atom(reason), do: from_code(reason)
   def from_business({:error, reason}) when is_binary(reason), do: from_code(reason)

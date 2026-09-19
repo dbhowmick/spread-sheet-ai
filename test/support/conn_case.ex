@@ -35,4 +35,10 @@ defmodule SpreadSheetAiWeb.ConnCase do
     SpreadSheetAi.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
+
+  @doc "Signs `user` in on `conn` through a new session (the auth cookie)."
+  def log_in_user(conn, user) do
+    %{raw_token: raw_token} = SpreadSheetAi.AuthFixtures.session_fixture(user)
+    Plug.Test.put_req_cookie(conn, SpreadSheetAi.Auth.Config.session_cookie_name(), raw_token)
+  end
 end

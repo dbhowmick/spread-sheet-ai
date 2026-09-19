@@ -15,9 +15,46 @@ defmodule SpreadSheetAi.Sheets do
   require Logger
 
   alias SpreadSheetAi.Accounts.User
-  alias SpreadSheetAi.Sheets.{Actor, Engine, Op, Persister, Runtime, State}
+  alias SpreadSheetAi.Repo
+  alias SpreadSheetAi.Sheets.{Actor, Engine, Op, Persister, Runtime, SheetQueries, State}
 
   @type error :: {:error, atom(), String.t(), map()}
+
+  @type summary :: %{
+          id: Ecto.UUID.t(),
+          name: String.t(),
+          owner: State.owner(),
+          version: pos_integer(),
+          row_count: non_neg_integer(),
+          column_count: non_neg_integer(),
+          inserted_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
+
+  @doc """
+  Every sheet (all signed-in users see all sheets), most recently updated
+  first, with its owner and row and column counts. Read from Postgres; no
+  sheet server is started.
+  """
+  @spec list_sheets() :: [summary()]
+  def list_sheets do
+    SheetQueries.newest_first()
+    |> SheetQueries.with_owner()
+    |> SheetQueries.with_counts()
+    |> Repo.all()
+    |> Enum.map(fn %{sheet: sheet, row_count: row_count, column_count: column_count} ->
+      %{
+        id: sheet.id,
+        name: sheet.name,
+        owner: State.owner(sheet.owner),
+        version: sheet.version,
+        row_count: row_count,
+        column_count: column_count,
+        inserted_at: sheet.inserted_at,
+        updated_at: sheet.updated_at
+      }
+    end)
+  end
 
   @doc """
   Creates a sheet from `parse_create` params (contract §3 `POST /api/sheets`

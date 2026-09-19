@@ -94,7 +94,7 @@ defmodule SpreadSheetAi.Sheets.State do
 
   @doc "The `owner` of a State, from a user."
   @spec owner(User.t() | term()) :: owner() | nil
-  def owner(%User{} = user), do: %{id: user.id, display_name: user.display_name}
+  def owner(%User{} = user), do: %{id: user.id, display_name: User.display_name(user)}
   def owner(_not_loaded), do: nil
 
   # ----- Reads -----
