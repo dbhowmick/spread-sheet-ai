@@ -8,6 +8,7 @@ defmodule SpreadSheetAiWeb.UserSocket do
   use Phoenix.Socket
 
   channel "sheet:*", SpreadSheetAiWeb.SheetChannel
+  channel "conversation:*", SpreadSheetAiWeb.ConversationChannel
 
   alias SpreadSheetAi.Accounts
   alias SpreadSheetAi.Accounts.Session

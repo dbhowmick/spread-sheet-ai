@@ -56,38 +56,47 @@ defmodule SpreadSheetAi.Conversations do
   end
 
   @doc """
-  Gets a conversation by ID, scoped to the given context.
+  Gets a conversation by ID, with its creator (`user`) preloaded.
 
-  Returns `{:ok, conversation}` or `{:error, :not_found}`.
+  Returns `{:ok, conversation}` or `{:error, :not_found}`, also for an id
+  that isn't a UUID.
   """
   def get_conversation(%Scope{} = scope, id) do
-    Conversation
-    |> scope_query(scope)
-    |> Repo.get(id)
-    |> case do
-      nil -> {:error, :not_found}
-      conversation -> {:ok, conversation}
+    with {:ok, id} <- cast_id(id),
+         %Conversation{} = conversation <-
+           Conversation |> scope_query(scope) |> preload(:user) |> Repo.get(id) do
+      {:ok, conversation}
+    else
+      _not_found -> {:error, :not_found}
     end
   end
 
   @doc """
-  Lists all conversations accessible within the given scope.
+  Lists every conversation, most recent activity (`updated_at`) first, with
+  its creator (`user`) preloaded.
 
   ## Options
 
-    * `:limit` - Maximum number of conversations to return (default: 50)
+    * `:limit` - Maximum number of conversations to return (default: all)
     * `:offset` - Number of conversations to skip (default: 0)
   """
   def list_conversations(%Scope{} = scope, opts \\ []) do
-    limit = Keyword.get(opts, :limit, 50)
     offset = Keyword.get(opts, :offset, 0)
 
-    Conversation
-    |> scope_query(scope)
-    |> order_by([c], desc: c.updated_at)
-    |> limit(^limit)
-    |> offset(^offset)
-    |> Repo.all()
+    query =
+      Conversation
+      |> scope_query(scope)
+      |> order_by([c], desc: c.updated_at, desc: c.id)
+      |> offset(^offset)
+      |> preload(:user)
+
+    query =
+      case Keyword.get(opts, :limit) do
+        nil -> query
+        limit -> limit(query, ^limit)
+      end
+
+    Repo.all(query)
   end
 
   def update_conversation(%Conversation{} = conversation, attrs) do
@@ -236,13 +245,15 @@ defmodule SpreadSheetAi.Conversations do
   @doc """
   Appends a display message to a conversation, filtered by scope.
 
-  Verifies the conversation belongs to `scope` before inserting.
+  Verifies the conversation belongs to `scope` before inserting, and bumps
+  the conversation's `updated_at`, which is its last activity (UI-2).
   """
   def append_display_message(%Scope{} = scope, conversation_id, attrs) do
-    with :ok <- authorize_conversation(scope, conversation_id) do
-      conversation_id
-      |> DisplayMessage.create_changeset(attrs)
-      |> Repo.insert()
+    with :ok <- authorize_conversation(scope, conversation_id),
+         {:ok, message} <-
+           conversation_id |> DisplayMessage.create_changeset(attrs) |> Repo.insert() do
+      touch_conversation(conversation_id, message.inserted_at)
+      {:ok, message}
     end
   end
 
@@ -522,8 +533,46 @@ defmodule SpreadSheetAi.Conversations do
   end
 
   #
+  # App events
+  #
+
+  @doc """
+  The PubSub topic for app events about a conversation, such as
+  `{:sheets_changed}` and `{:focus_sheet, sheet_id, reason}`. It is separate
+  from `"conversation:<id>"`, which the channel and Sagents' viewer presence
+  use.
+  """
+  @spec events_topic(String.t()) :: String.t()
+  def events_topic(conversation_id), do: "conversation_events:#{conversation_id}"
+
+  @doc "Subscribes the calling process to `events_topic/1`."
+  @spec subscribe_events(String.t()) :: :ok | {:error, term()}
+  def subscribe_events(conversation_id),
+    do: Phoenix.PubSub.subscribe(SpreadSheetAi.PubSub, events_topic(conversation_id))
+
+  @doc "Broadcasts an app event to the conversation's subscribers."
+  @spec broadcast_event(String.t(), term()) :: :ok | {:error, term()}
+  def broadcast_event(conversation_id, event),
+    do: Phoenix.PubSub.broadcast(SpreadSheetAi.PubSub, events_topic(conversation_id), event)
+
+  #
   # Private Helpers
   #
+
+  defp cast_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :not_found}
+    end
+  end
+
+  # A conversation's `updated_at` is its last activity: every stored message
+  # moves it forward.
+  defp touch_conversation(conversation_id, at) do
+    Conversation
+    |> where([c], c.id == ^conversation_id)
+    |> Repo.update_all(set: [updated_at: at])
+  end
 
   # Conversations are shared (CS-1): every signed-in user may see every
   # conversation, so neither scope helper filters. They stay as the single

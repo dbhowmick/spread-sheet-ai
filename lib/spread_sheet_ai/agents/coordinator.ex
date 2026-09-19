@@ -181,9 +181,21 @@ defmodule SpreadSheetAi.Agents.Coordinator do
   Returns `{:ok, :stopped}`, `{:ok, :not_running}`, or
   `{:error, :registry_unavailable}` when this node cannot answer registry
   lookups at all.
+
+  Adapted: this stops the agent's whole `AgentSupervisor`, as the agent's own
+  inactivity and no-viewer shutdowns do. `Sagents.Session.stop/2` (0.15.1)
+  stops only the `AgentServer`; its supervisor stays registered with no
+  server, and the next start for the conversation waits on that supervisor
+  for a server that never comes. The server still persists its state as it
+  stops.
   """
-  def stop_conversation_session(conversation_id),
-    do: Sagents.Session.stop(@config, conversation_id)
+  def stop_conversation_session(conversation_id) do
+    case Sagents.AgentsDynamicSupervisor.stop_agent(conversation_agent_id(conversation_id)) do
+      :ok -> {:ok, :stopped}
+      {:error, :not_found} -> {:ok, :not_running}
+      {:error, :registry_unavailable} = error -> error
+    end
+  end
 
   @doc """
   Whether an agent session is currently running for `conversation_id`.

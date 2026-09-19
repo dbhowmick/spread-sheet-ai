@@ -77,12 +77,8 @@ defmodule SpreadSheetAiWeb.SheetChannel do
     {:noreply, socket}
   end
 
-  defp push_participants(socket) do
-    users =
-      for {_user_id, %{metas: [%{user: user_ref} | _]}} <- Presence.list(socket), do: user_ref
-
-    push(socket, "participants", SheetJSON.participants(users))
-  end
+  defp push_participants(socket),
+    do: push(socket, "participants", SheetJSON.participants(Presence.user_refs(socket)))
 
   defp actor(socket), do: Actor.user(socket.assigns.current_user)
 

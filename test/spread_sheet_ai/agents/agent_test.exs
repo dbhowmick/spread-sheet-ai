@@ -43,7 +43,12 @@ defmodule SpreadSheetAi.Agents.AgentTest do
                Conversations.load_display_messages(Scope.for_user(alice), conversation.id)
 
       assert %{message_type: "user", content: %{"text" => "hi"}} = user_message
-      assert user_message.metadata == %{"sender_user_id" => alice.id}
+
+      assert user_message.metadata == %{
+               "sender_user_id" => alice.id,
+               "sender_display_name" => "Alice"
+             }
+
       assert %{message_type: "assistant", content: %{"text" => "Hello Alice!"}} = reply
 
       # The model saw the sender-prefixed text.
@@ -107,5 +112,10 @@ defmodule SpreadSheetAi.Agents.AgentTest do
 
   defp display(user, text), do: with_sender(Message.new_user!(text), user)
 
-  defp with_sender(message, user), do: %{message | metadata: %{"sender_user_id" => user.id}}
+  defp with_sender(message, user) do
+    %{
+      message
+      | metadata: %{"sender_user_id" => user.id, "sender_display_name" => user.display_name}
+    }
+  end
 end

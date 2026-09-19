@@ -6,8 +6,10 @@ defmodule SpreadSheetAi.Agents.DisplayMessagePersistence do
   tool execution lifecycle status updates. Called from within the AgentServer
   process for exactly-once semantics.
 
-  A user message's sender (CS-3) travels in `message.metadata["sender_user_id"]`
-  and is copied into each saved row's `metadata`.
+  A user message's sender (CS-3) travels in `message.metadata` as
+  `"sender_user_id"` and `"sender_display_name"` (see
+  `SpreadSheetAi.Agents.Chat`), and is copied into each saved row's
+  `metadata`. The name is kept as it was when the message was sent.
   """
 
   @behaviour Sagents.DisplayMessagePersistence
@@ -16,6 +18,8 @@ defmodule SpreadSheetAi.Agents.DisplayMessagePersistence do
 
   alias LangChain.Message
   alias Sagents.Message.DisplayHelpers
+
+  @sender_keys ["sender_user_id", "sender_display_name"]
 
   @impl true
   def save_message(scope, %Message{} = message, context) do
@@ -92,8 +96,8 @@ defmodule SpreadSheetAi.Agents.DisplayMessagePersistence do
     SpreadSheetAi.Conversations.append_display_message(scope, conversation_id, attrs)
   end
 
-  defp sender_metadata(%Message{metadata: %{"sender_user_id" => sender_id}}),
-    do: %{"sender_user_id" => sender_id}
+  defp sender_metadata(%Message{metadata: metadata}) when is_map(metadata),
+    do: Map.take(metadata, @sender_keys)
 
   defp sender_metadata(%Message{}), do: %{}
 

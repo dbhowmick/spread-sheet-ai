@@ -52,6 +52,7 @@ defmodule SpreadSheetAiWeb.Router do
     post "/organizations", OrganizationsController, :create
 
     resources "/sheets", SheetController, only: [:index, :show, :create]
+    resources "/conversations", ConversationController, only: [:index, :show, :create]
   end
 
   # Declare additional /api scopes ABOVE this comment; the SPA catch-all

@@ -75,6 +75,7 @@ lib/spread_sheet_ai/
           agent_persistence,display_message_persistence,
           agent_subscriber_session}.ex  GENERATED, then adapted (§7)
   agents/chat_models.ex                 builds the chat models from config (§7.4)
+  agents/chat.ex                        send_message / cancel / status for the channel (§7.3)
   agents/middleware/sheet_tools.ex      tools + linked-sheet context injection
   agents/tools/*.ex                     one module per tool group (read, structure, rows, cells)
 lib/spread_sheet_ai_web/
@@ -399,7 +400,9 @@ pure contract serializers shared by the channel and REST: `sheet`,
   - `create` passes on only the §3 fields.
 - `FallbackController` maps the context's 4-tuple errors to statuses:
   `not_found` → 404, `internal_error` → 500, and anything else → 422.
-- `ConversationController` comes in Phase 7.
+- `ConversationController.index/create/show` (Phase 7): conversations are
+  listed by last activity, with `created_by` from the preloaded creator.
+  `create` ignores the body.
 
 ## 7. Sagents integration
 
@@ -479,16 +482,26 @@ with `send/2` to each subscribed process, **not** over PubSub.
 is reused as is.
 
 **join:**
-1. Load the conversation, its display messages (`MessageJSON`) and its
-   linked sheets.
-2. `Sagents.Subscriber.subscribe_to_agent(subs, agent_id, tagged: true)`,
+1. Load the conversation. A missing or malformed id replies `not_found`.
+2. `Conversations.subscribe_events(id)` for app events (below), and
+   `PubSub.subscribe("agent_server:presence")`, so a pending subscription is
+   revived when an agent starts (`Subscriber.handle_presence_diff`).
+3. `Sagents.Subscriber.subscribe_to_agent(%{}, agent_id, tagged: true)`,
    where `agent_id = Coordinator.conversation_agent_id(id)`. If no agent is
    running, the subscription stays pending.
-3. `PubSub.subscribe("agent_server:presence")`, so a pending subscription is
-   revived when an agent starts (`handle_presence_diff`).
-4. `PubSub.subscribe("conversation_events:<id>")` for app events (below).
-5. `Coordinator.track_conversation_viewer(id, user)`.
-6. Reply with contract §7.1, `status: not_started` if no agent is running.
+4. Load the display messages (`MessageJSON`) and the linked sheets. This
+   happens after subscribing, so a message stored in between is sent twice
+   at worst; the client replaces messages by id.
+5. Reply with contract §7.1. The status comes from `Chat.status/1`:
+   `not_started` if no agent is running.
+6. After joining, `Coordinator.track_conversation_viewer(id, user_id, %{user: user_ref})`,
+   then push `participants`.
+
+**Revival gap.** A viewer whose subscription is pending subscribes only when
+the agent's presence join arrives. Another user's first message can be
+stored before that, and this viewer would never get it. So when a presence
+diff revives the subscription, the channel pushes `message` for every stored
+message from the newest one it has already sent (`last_message_at`) onwards.
 
 Sagents tracks viewers on the same topic, `"conversation:<id>"`, so
 `intercept ["presence_diff"]` turns presence changes into `participants`
@@ -497,44 +510,68 @@ topic and ignores unknown messages. The app therefore sends its own events
 on the separate `"conversation_events:<id>"` topic, not on the channel
 topic.
 
-**`send_message`:**
-1. `Coordinator.ensure_agent_session_running(%{conversation_id, current_scope: Scope.for_user(user), sagents_subs})`.
-2. Build the model-visible message: `Message.new_user!("[#{display_name}]: #{text}")`,
-   with metadata `%{"sender_user_id" => id}`.
-3. Build the display message: `Message.new_user!(text)`, with the same
-   metadata.
-4. `AgentServer.add_message(agent_id, llm_msg, display: display_msg)`.
+**`send_message`** goes through `SpreadSheetAi.Agents.Chat.send_message/3`,
+which the channel wraps:
+1. Trim the text. Blank text is `validation_failed` (`field: "text"`).
+2. `Coordinator.ensure_agent_session_running(%{conversation_id, current_scope: Scope.for_user(user), sagents_subs})`.
+   Merge the returned `sagents_subs` into the channel's assigns.
+3. Build the model-visible message: `Message.new_user!("[#{display_name}]: #{text}")`.
+4. Build the display message: `Message.new_user!(text)`.
+5. Both carry metadata
+   `%{"sender_user_id" => id, "sender_display_name" => name}`.
+   `DisplayMessagePersistence` copies both keys into the stored row, so
+   `MessageJSON` and `message_queued` need no user lookup. A renamed user
+   keeps their old name in past messages.
+6. `AgentServer.add_message(agent_id, llm_msg, display: display_msg)`.
 
 Edge cases:
 - `add_message` queues the message itself if a run is in progress (CS-4).
-- **Known race:** two users sending while the agent is idle can get
-  `{:error, "Cannot execute…running"}` even though the message was
-  accepted. Treat that error as success, log it, and cover it with a
-  fake-model test (§11).
+  It stores the display half at once, so a `message` push follows, then
+  broadcasts `{:message_queued, llm_msg}`.
+- **The idle race:** two messages can reach an idle agent back to back.
+  Both are added, and the first `execute` starts a run holding both. The
+  second `execute` then fails with
+  `{:error, "Cannot execute, server is in state: running"}`. `Chat` treats
+  that error as success and logs it at info. A test suspends the agent
+  (`:sys.suspend`) so the two adds queue together, and asserts one model
+  call with both messages.
 
-**`cancel`:** `AgentServer.cancel(agent_id)`. If the agent isn't running,
-reply `not_running`.
+**Activity.** Every stored display message moves its conversation's
+`updated_at` (`Conversations.append_display_message`). That makes
+`updated_at` the "last activity" of UI-2, and the REST list is ordered by it.
+
+**`cancel`:** `Chat.cancel/1` calls `AgentServer.cancel(agent_id)`. If the
+agent isn't running, it replies `not_running`.
 
 **`open_sheet`:**
 1. `Sheets.link(conversation_id, sheet_id, :opened)`.
-2. Broadcast `{:sheets_changed}` on `"conversation_events:<id>"`.
+2. Broadcast `{:sheets_changed}` with `Conversations.broadcast_event/2`.
 3. Reply with the `LinkedSheet`.
 
 **Event translation.** A pure `ConversationEvents.translate/2` turns each
-event into zero or more contract pushes, so it can be unit-tested:
+event into zero or more contract pushes, so it can be unit-tested. It keeps
+a small state:
+- `status`: a status is pushed only when it changes. A shutdown, for
+  example, arrives more than once.
+- `streaming?`: whether a streaming bubble is open.
+- `tool_labels`: each call's `display_text`. Sagents sends it when a call is
+  identified, but not when the call completes or fails.
 
 | Sagents event (`{:agent, tag, ev}`) | Push |
 |---|---|
-| `{:llm_deltas, deltas}` | `stream_delta` with the new text, merged through `AgentSubscriberSession.handle_llm_deltas` |
-| `{:display_message_saved, dm}` | `stream_reset` (if streaming), then `message` |
+| `{:llm_deltas, deltas}` | `stream_delta` with the deltas' text. Nothing when they carry no text |
+| `{:display_message_saved, dm}` | `message`. An AI message (not a user's queued one) sends `stream_reset` first if streaming |
 | `{:display_message_updated, dm}` | `message_updated` |
-| `{:tool_call_identified, info}` / `{:tool_execution_update, st, info}` | `tool_status` |
-| `{:status_changed, st, _}` | `status` (`:interrupted` and `:paused` are not used, because HITL is off) |
-| `{:message_queued, msg}` | `message_queued`. The sender comes from `msg.metadata`, or is parsed from the `[Name]:` prefix |
+| `{:tool_call_identified, info}` / `{:tool_execution_update, st, info}` | `tool_status`. Skipped while `call_id` is nil (early in streaming) |
+| `{:status_changed, st, reason}` | `status` for idle, running, cancelled and error. An error carries the `LangChainError` message. A status that ends the run sends `stream_reset` first if streaming. `:interrupted` and `:paused` are not used, because HITL is off |
+| `{:message_queued, msg}` | `message_queued`. The sender comes from `msg.metadata`, and the `[Name]: ` prefix is removed from the text |
 | `{:conversation_title_generated, title, _}` | `title` |
-| `{:chain_error, err}` | `status` `error` with the formatted message |
-| `{:agent_shutdown, _}` | the subscription goes back to pending, and `status` `idle` is pushed |
-| `{:llm_message, _}`, `{:llm_token_usage, _}`, `{:state_restored, _}`, `{:todos_updated, _}` | ignored |
+| `{:agent_shutdown, _}` | `status` `idle`. The `:DOWN` that follows puts the subscription back to pending |
+| `{:chain_error, _}` (it duplicates `{:status_changed, :error, _}`), `{:llm_message, _}`, `{:llm_token_usage, _}`, `{:state_restored, _}`, `{:todos_updated, _}`, node transfers | ignored |
+
+Framework rows (a cancel notice, a failed turn) have `message_type:
+"system"`, which the contract doesn't have. `MessageJSON` sends them with
+role `assistant`.
 
 Events on `"conversation_events:<id>"` (from tools and `open_sheet`):
 - `{:sheets_changed}`: reload the links and push `sheets`.
@@ -724,8 +761,15 @@ phase 4.
     with `start_supervised!`, so agent tests are `async: false`.
   - `ConversationsFixtures.start_agent!/2` starts an agent with the test
     subscribed, waits for its startup `:idle`, and stops it `on_exit`
-    before the sandbox owner. A run is over at the next `:running` →
-    `:idle`.
+    before the sandbox owner. `stop_agent_on_exit/1` does the same for an
+    agent a channel starts.
+  - A run is over at the next `:running` → `:idle`. `await_run_end/1` reads
+    statuses in arrival order, so an earlier `:idle` (the startup one, or
+    the snapshot sent on subscribe) isn't mistaken for the end.
+  - Channel tests join several sockets from one test process, so they tell
+    pushes apart by the socket's `join_ref`. A scripted reply that blocks
+    until the test sends `:release` keeps the AI busy for the queue and
+    cancel tests.
   - Sagents ships no fake model, which is why we write our own.
   - If the behaviour turns out to be impractical to implement, fall back to
     stubbing `ReqLLM.stream_text` with Mimic, as the Sagents guides do.
@@ -746,3 +790,5 @@ phase 4.
 | The agent stops after 10 minutes idle even while people are viewing | Harmless: the next `send_message` restarts it from persisted state. Optionally call `AgentServer.touch/1` while viewers are present |
 | The generated code differs from app conventions (Repo calls in generated modules) | Accepted inside the generated `conversations/` and `agents/` namespaces. Our own code follows the conventions |
 | Sagents 0.15.1 updates an agent's presence before tracking it, logging a harmless `:nopresence` warning on every agent start | Ignored. Agent tests use `@moduletag :capture_log` |
+| Sagents 0.15.1 `Session.stop/2` stops only the `AgentServer`. Its supervisor stays registered, and the next start for that conversation times out waiting for a server | `Coordinator.stop_conversation_session/1` stops the whole `AgentSupervisor` (`AgentsDynamicSupervisor.stop_agent/1`), as the agent's own idle shutdowns do |
+| A viewer whose agent subscription is pending can miss messages stored before it revives | On revival the channel pushes every stored message from the newest one it has sent (§7.3) |

@@ -48,9 +48,10 @@ Schemas never call `Repo` — every `<thing>.ex` has a sibling `<thing>_queries.
 
 **JSON API** under `/api/`:
 - Public: `POST /api/auth/register`, `POST /api/sessions`, `POST /api/me/{password-reset,password-reset/confirm,email-verification/confirm,email-verification/resend}`
-- Authenticated: `GET /api/sheets`, `GET /api/sheets/:id`, `POST /api/sheets` (`SheetController`, contract §3), `GET /api/me`, `GET /api/socket_token`, `DELETE /api/sessions/current`, `POST /api/sessions/revoke-all`, `POST /api/me/{switch-organization,change-password}`, `POST /api/organizations`
+- Authenticated: `GET /api/sheets`, `GET /api/sheets/:id`, `POST /api/sheets` (`SheetController`, contract §3), `GET /api/conversations`, `GET /api/conversations/:id`, `POST /api/conversations` (`ConversationController`), `GET /api/me`, `GET /api/socket_token`, `DELETE /api/sessions/current`, `POST /api/sessions/revoke-all`, `POST /api/me/{switch-organization,change-password}`, `POST /api/organizations`
 - WebSocket `/socket` (`SpreadSheetAiWeb.UserSocket`): the SPA fetches `GET /api/socket_token` (a 24 h `Phoenix.Token` over `{user_id, session_id}`, see `SpreadSheetAiWeb.SocketToken`) and connects with it as the Phoenix `auth_token`. `connect/3` re-checks the session via `Accounts.fetch_active_session/1`; `id/1` is `"user_socket:<session_id>"`. Channel tests use `SpreadSheetAiWeb.ChannelCase.connect_user/1`.
 - Channel `sheet:<id>` (`SpreadSheetAiWeb.SheetChannel`, contract §5): join snapshot, `op` / `snapshot` events, `op_applied` and `participants` pushes. Contract serializers live in `SpreadSheetAiWeb.SheetJSON` (`lib/spread_sheet_ai_web/json/`), shared with REST. The sheets context's `{:error, code, message, meta}` becomes the error envelope via `Api.Errors.from_business/1`.
+- Channel `conversation:<id>` (`SpreadSheetAiWeb.ConversationChannel`, contract §7): the join reply (conversation, messages, linked sheets, agent status), `send_message` / `cancel` / `open_sheet`, and the chat pushes. The channel process is a Sagents subscriber; `SpreadSheetAiWeb.ConversationEvents` (pure) turns agent events into pushes, and `ConversationJSON` / `MessageJSON` serialize. Both channels list viewers with `SpreadSheetAiWeb.Presence.user_refs/1`.
 - All `{:error, _}` from contexts flow through `SpreadSheetAiWeb.Api.FallbackController` → canonical envelope via `SpreadSheetAiWeb.Api.Errors`.
 
 **SPA**:
@@ -173,13 +174,20 @@ in `docs/backend-plan.md` §7.
   - conversations are shared (the scope helpers don't filter);
   - the sender is kept in display-message metadata;
   - `AgentPersistence` is the one title writer;
-  - the factory has no filesystem or HITL.
+  - the factory has no filesystem or HITL;
+  - `Coordinator.stop_conversation_session/1` stops the whole agent
+    supervisor (Sagents' own stop leaves it behind).
 
   These namespaces may call `Repo` directly; the schema/queries split
   applies to our own code.
 - **Models:** `SpreadSheetAi.Agents.ChatModels` builds them from
   `config :spread_sheet_ai, :ai` (OpenRouter via `ChatReqLLM`). ReqLLM
   reads `OPENROUTER_API_KEY` from the env or from `.env` (gitignored).
+- **Chat:** `SpreadSheetAi.Agents.Chat` sends a user's message (as
+  `"[Name]: text"` to the model, with the sender in the metadata), cancels
+  a turn and reads the agent's status. App events for a conversation
+  (`{:sheets_changed}`, `{:focus_sheet, id, reason}`) go through
+  `Conversations.broadcast_event/2` on `"conversation_events:<id>"`.
 - **Sheet links:** `Sheets.link/3` and `Sheets.list_links/1` record which
   sheets a conversation used (`conversation_sheets`).
 - **Tests never call a real model.** `SpreadSheetAi.Test.ScriptedChatModel`
@@ -187,7 +195,8 @@ in `docs/backend-plan.md` §7.
   - `start_supervised!(ScriptedChatModel)` starts it, and `push/2` adds
     replies;
   - `ConversationsFixtures.start_agent!/2` starts an agent with the test
-    subscribed to it;
+    subscribed to it, `stop_agent_on_exit/1` cleans up an agent a channel
+    started, and `await_run_end/1` waits for the end of a run;
   - agent tests are `async: false`.
 
 ## Background jobs (Oban)

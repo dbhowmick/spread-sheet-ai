@@ -9,7 +9,7 @@ defmodule SpreadSheetAi.ConversationsFixtures do
   `SpreadSheetAi.Test.ScriptedChatModel`.
   """
 
-  import ExUnit.Assertions, only: [assert_receive: 1]
+  import ExUnit.Assertions, only: [assert_receive: 1, flunk: 1]
   import ExUnit.Callbacks, only: [on_exit: 1]
 
   alias SpreadSheetAi.Accounts.Scope
@@ -20,6 +20,16 @@ defmodule SpreadSheetAi.ConversationsFixtures do
   @doc "Creates a conversation created by `user` (a new verified user by default)."
   def conversation_fixture(user \\ AuthFixtures.verified_user_fixture(), attrs \\ %{}) do
     {:ok, conversation} = Conversations.create_conversation(Scope.for_user(user), attrs)
+    conversation
+  end
+
+  @doc """
+  Stops the conversation's agent when the test exits, before the sandbox
+  owner does. For agents that something else (a channel) starts.
+  Returns the conversation.
+  """
+  def stop_agent_on_exit(conversation) do
+    on_exit(fn -> Coordinator.stop_conversation_session(conversation.id) end)
     conversation
   end
 
@@ -35,8 +45,31 @@ defmodule SpreadSheetAi.ConversationsFixtures do
         current_scope: Scope.for_user(user)
       })
 
-    on_exit(fn -> Coordinator.stop_conversation_session(conversation.id) end)
+    stop_agent_on_exit(conversation)
     assert_receive {:agent, ^agent_id, {:status_changed, :idle, nil}}
     agent_id
+  end
+
+  @doc """
+  Waits for the end of the agent's next run: its `:running` status, then the
+  following `:idle`. Statuses are read in arrival order, so an `:idle` that
+  came before the run (the startup one, or the snapshot sent on subscribe)
+  is skipped rather than mistaken for the end.
+  """
+  def await_run_end(agent_id, timeout \\ 2_000), do: await_status(agent_id, false, timeout)
+
+  defp await_status(agent_id, running?, timeout) do
+    receive do
+      {:agent, ^agent_id, {:status_changed, :running, _}} ->
+        await_status(agent_id, true, timeout)
+
+      {:agent, ^agent_id, {:status_changed, :idle, _}} when running? ->
+        :ok
+
+      {:agent, ^agent_id, {:status_changed, _status, _}} ->
+        await_status(agent_id, running?, timeout)
+    after
+      timeout -> flunk("the agent's run didn't end")
+    end
   end
 end
