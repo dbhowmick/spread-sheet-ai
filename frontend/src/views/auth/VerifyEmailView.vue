@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { CheckIcon, Loader2Icon, XIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@meldui/vue'
-import { IconCheck, IconLoader2, IconX } from '@meldui/tabler-vue'
+} from '@/components/ui/card'
 import { api } from '@/lib/api'
 import { useErrorMessage } from '@/composables/useErrorMessage'
 
@@ -49,9 +49,9 @@ onMounted(async () => {
           'bg-destructive/15 text-destructive': status === 'error',
         }"
       >
-        <IconLoader2 v-if="status === 'pending'" class="size-6 animate-spin" />
-        <IconCheck v-else-if="status === 'success'" class="size-6" />
-        <IconX v-else class="size-6" />
+        <Loader2Icon v-if="status === 'pending'" class="size-6 animate-spin" />
+        <CheckIcon v-else-if="status === 'success'" class="size-6" />
+        <XIcon v-else class="size-6" />
       </div>
       <CardTitle class="text-2xl font-display">
         <template v-if="status === 'pending'">Verifying…</template>

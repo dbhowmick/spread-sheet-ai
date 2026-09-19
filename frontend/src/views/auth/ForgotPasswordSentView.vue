@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@meldui/vue'
-import { IconMail } from '@meldui/tabler-vue'
+import { MailIcon } from '@lucide/vue'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 </script>
 
 <template>
   <Card>
     <CardHeader class="text-center space-y-2">
       <div class="mx-auto inline-flex items-center justify-center size-12 rounded-full bg-muted">
-        <IconMail class="size-6 text-muted-foreground" />
+        <MailIcon class="size-6 text-muted-foreground" />
       </div>
       <CardTitle class="text-2xl font-display">Check your inbox</CardTitle>
       <CardDescription>

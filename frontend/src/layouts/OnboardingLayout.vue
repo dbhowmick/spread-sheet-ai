@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterView, useRouter } from 'vue-router'
-import { Button } from '@meldui/vue'
+import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()

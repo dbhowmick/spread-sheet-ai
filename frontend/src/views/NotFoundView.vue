@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Button } from '@meldui/vue'
-import { IconArrowLeft } from '@meldui/tabler-vue'
+import { ArrowLeftIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
 
 const router = useRouter()
 </script>
@@ -13,7 +13,7 @@ const router = useRouter()
       <h1 class="font-display text-2xl font-semibold tracking-tight">Page not found</h1>
       <p class="text-base text-muted-foreground">The page you're looking for doesn't exist.</p>
       <Button @click="router.push('/')">
-        <IconArrowLeft class="size-4" />
+        <ArrowLeftIcon class="size-4" />
         Go home
       </Button>
     </div>

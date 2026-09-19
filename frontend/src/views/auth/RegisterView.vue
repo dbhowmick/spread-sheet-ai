@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import { EyeIcon, EyeOffIcon, Loader2Icon, UserPlusIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
-  Input,
-  Label,
-} from '@meldui/vue'
-import { IconEye, IconEyeOff, IconLoader2, IconUserPlus } from '@meldui/tabler-vue'
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/stores/auth'
 import { useErrorMessage } from '@/composables/useErrorMessage'
 
@@ -128,8 +128,8 @@ async function handleSubmit() {
               :aria-label="showPassword ? 'Hide password' : 'Show password'"
               @click="showPassword = !showPassword"
             >
-              <IconEyeOff v-if="showPassword" class="size-4" />
-              <IconEye v-else class="size-4" />
+              <EyeOffIcon v-if="showPassword" class="size-4" />
+              <EyeIcon v-else class="size-4" />
             </button>
           </div>
           <p v-if="errors.password" class="text-xs text-destructive">
@@ -141,8 +141,8 @@ async function handleSubmit() {
 
       <CardFooter class="flex flex-col gap-3 pt-4">
         <Button type="submit" class="w-full" :disabled="submitting">
-          <IconLoader2 v-if="submitting" class="size-4 animate-spin" />
-          <IconUserPlus v-else class="size-4" />
+          <Loader2Icon v-if="submitting" class="size-4 animate-spin" />
+          <UserPlusIcon v-else class="size-4" />
           {{ submitting ? 'Creating account…' : 'Create account' }}
         </Button>
         <p class="text-xs text-muted-foreground text-center">

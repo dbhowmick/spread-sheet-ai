@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { Loader2Icon, MailIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@meldui/vue'
-import { IconLoader2, IconMail } from '@meldui/tabler-vue'
+} from '@/components/ui/card'
 import { api } from '@/lib/api'
 
 const route = useRoute()
@@ -32,7 +32,7 @@ async function handleResend() {
   <Card>
     <CardHeader class="text-center space-y-2">
       <div class="mx-auto inline-flex items-center justify-center size-12 rounded-full bg-muted">
-        <IconMail class="size-6 text-muted-foreground" />
+        <MailIcon class="size-6 text-muted-foreground" />
       </div>
       <CardTitle class="text-2xl font-display">Check your inbox</CardTitle>
       <CardDescription>
@@ -57,7 +57,7 @@ async function handleResend() {
         :disabled="resending || !email"
         @click="handleResend"
       >
-        <IconLoader2 v-if="resending" class="size-4 animate-spin" />
+        <Loader2Icon v-if="resending" class="size-4 animate-spin" />
         {{ resending ? 'Sending…' : 'Resend verification email' }}
       </Button>
       <p v-else class="text-xs text-muted-foreground text-center">

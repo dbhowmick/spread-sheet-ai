@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Building2Icon, Loader2Icon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
-  Input,
-  Label,
-} from '@meldui/vue'
-import { IconBuilding, IconLoader2 } from '@meldui/tabler-vue'
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/stores/auth'
 import { useErrorMessage } from '@/composables/useErrorMessage'
 
@@ -83,8 +83,8 @@ async function handleSubmit() {
 
       <CardFooter class="pt-4">
         <Button type="submit" class="w-full" :disabled="submitting || !name.trim()">
-          <IconLoader2 v-if="submitting" class="size-4 animate-spin" />
-          <IconBuilding v-else class="size-4" />
+          <Loader2Icon v-if="submitting" class="size-4 animate-spin" />
+          <Building2Icon v-else class="size-4" />
           {{ submitting ? 'Creating…' : 'Create organization' }}
         </Button>
       </CardFooter>

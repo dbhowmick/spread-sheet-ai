@@ -73,7 +73,7 @@ Schemas never call `Repo` — every `<thing>.ex` has a sibling `<thing>_queries.
 
 - `lib/spread_sheet_ai/` — business logic root: `application.ex`, `repo.ex`, `mailer.ex`. New contexts go here.
 - `lib/spread_sheet_ai_web/` — web layer: `endpoint.ex`, `router.ex`, `telemetry.ex`, `components/`, `controllers/`, `gettext.ex`, `plugs/`. `PageController.home` renders the SPA shell; a catch-all `GET /*path` at the bottom of `router.ex` sends every browser path through it so vue-router survives deep-link refreshes.
-- `frontend/` — Vue 3 SPA bundled by Vite 8 (Tailwind v4 + Meldui + Pinia + Vue Router 5, OXC toolchain). Full layout + conventions in the [**Frontend (Vue 3 SPA)**](#frontend-vue-3-spa) section below. `phoenix` npm + `@types/phoenix` are pre-installed so Channels are one UserSocket + endpoint route away when needed.
+- `frontend/` — Vue 3 SPA bundled by Vite 8 (Tailwind v4 + shadcn-vue + Pinia + Vue Router 5, OXC toolchain). Full layout + conventions in the [**Frontend (Vue 3 SPA)**](#frontend-vue-3-spa) section below. `phoenix` npm + `@types/phoenix` are pre-installed so Channels are one UserSocket + endpoint route away when needed.
 - `priv/static/assets/` — Vite build output (gitignored). Populated by `mix assets.build` / `mix assets.deploy`. **No `assets/` directory** on the Phoenix side — Vite owns all CSS/JS.
 - `priv/repo/migrations/` — Ecto migrations (Oban schema landed in the initial `add_oban` migration).
 - HTTP server: Bandit (`Bandit.PhoenixAdapter` in `config/config.exs`).
@@ -98,9 +98,9 @@ frontend/
 ├── .editorconfig / .gitattributes / .gitignore
 └── src/
     ├── main.ts              createApp + pinia + router; mounts #app
-    ├── App.vue              <RouterView /> + <Toaster /> (meldui)
+    ├── App.vue              <RouterView /> + <Toaster /> (shadcn-vue sonner)
     ├── assets/
-    │   └── main.css         tailwindcss + tw-animate-css + meldui theme
+    │   └── main.css         tailwindcss + tw-animate-css + shadcn-vue theme
     │                        + Geist/Bricolage fonts + Tailwind @source paths
     ├── router/
     │   └── index.ts         createWebHistory; home + 404 catch-all
@@ -168,7 +168,7 @@ Tests use `config :spread_sheet_ai, Oban, testing: :inline` (jobs run synchronou
 
 - **HTTP client is `Req` only** — never HTTPoison / Tesla / httpc.
 - **Tailwind v4 lives on the Vue side** — `frontend/src/assets/main.css` is canonical (no `tailwind.config.js`, no Phoenix-side asset pipeline).
-- **Use Meldui for SPA UI** — `import { Button, ... } from '@meldui/vue'` and `@meldui/tabler-vue` for icons. Don't reintroduce daisyUI.
+- **Use shadcn-vue for SPA UI** — components are vendored under `frontend/src/components/ui/` (add more with `pnpm dlx shadcn-vue@latest add <name>` from `frontend/`); import per component, e.g. `import { Button } from '@/components/ui/button'`. Icons come from `@lucide/vue` (`*Icon` names, e.g. `Loader2Icon`); toasts via `import { toast } from 'vue-sonner'`. Don't reintroduce Meldui or daisyUI.
 - **Forms always via `Phoenix.Component.to_form/2`**; never pass a changeset directly to `<.form for=...>`.
 - **No `live_redirect` / `live_patch`** — use `<.link navigate>` / `push_navigate`.
 - **No `String.to_atom/1` on user input** (memory leak).

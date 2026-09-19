@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Button, toast } from '@meldui/vue'
-import { IconBolt, IconExternalLink } from '@meldui/tabler-vue'
+import { ExternalLinkIcon, ZapIcon } from '@lucide/vue'
+import { toast } from 'vue-sonner'
+import { Button } from '@/components/ui/button'
 
 const count = ref(0)
 
@@ -24,12 +25,12 @@ function increment() {
       </p>
       <div class="flex items-center justify-center gap-3">
         <Button @click="increment">
-          <IconBolt class="size-4" />
+          <ZapIcon class="size-4" />
           Click me
         </Button>
         <Button as="a" href="/dev/dashboard" variant="outline">
           LiveDashboard
-          <IconExternalLink class="size-4" />
+          <ExternalLinkIcon class="size-4" />
         </Button>
       </div>
     </div>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
-import { Toaster } from '@meldui/vue'
+import { Toaster } from '@/components/ui/sonner'
 </script>
 
 <template>

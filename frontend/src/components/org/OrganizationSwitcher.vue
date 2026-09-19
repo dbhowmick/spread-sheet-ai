@@ -10,17 +10,17 @@
  */
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { Building2Icon, CheckIcon, ChevronDownIcon, PlusIcon } from '@lucide/vue'
+import { toast } from 'vue-sonner'
+import { Button } from '@/components/ui/button'
 import {
-  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  toast,
-} from '@meldui/vue'
-import { IconBuilding, IconCheck, IconChevronDown, IconPlus } from '@meldui/tabler-vue'
+} from '@/components/ui/dropdown-menu'
 import { MODE } from '@/lib/auth-mode'
 import { useAuthStore } from '@/stores/auth'
 import { useErrorMessage } from '@/composables/useErrorMessage'
@@ -51,9 +51,9 @@ function createNew() {
   <DropdownMenu v-if="MODE === 'multi'">
     <DropdownMenuTrigger as-child>
       <Button variant="ghost" class="gap-2">
-        <IconBuilding class="size-4" />
+        <Building2Icon class="size-4" />
         <span class="truncate max-w-[10rem]">{{ currentOrgName }}</span>
-        <IconChevronDown class="size-3 text-muted-foreground" />
+        <ChevronDownIcon class="size-3 text-muted-foreground" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent class="min-w-[14rem]">
@@ -64,11 +64,11 @@ function createNew() {
         @select="switchTo(m.organization_id)"
       >
         <span class="flex-1 truncate">{{ m.organization?.name }}</span>
-        <IconCheck v-if="m.organization?.id === authStore.organization?.id" class="size-4" />
+        <CheckIcon v-if="m.organization?.id === authStore.organization?.id" class="size-4" />
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem @select="createNew">
-        <IconPlus class="size-4 mr-2" />
+        <PlusIcon class="size-4 mr-2" />
         Create new organization
       </DropdownMenuItem>
     </DropdownMenuContent>

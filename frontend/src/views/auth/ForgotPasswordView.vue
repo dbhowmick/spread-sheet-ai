@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import { Loader2Icon, MailIcon } from '@lucide/vue'
+import { Button } from '@/components/ui/button'
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
-  Input,
-  Label,
-} from '@meldui/vue'
-import { IconLoader2, IconMail } from '@meldui/tabler-vue'
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { api } from '@/lib/api'
 
 const router = useRouter()
@@ -54,8 +54,8 @@ async function handleSubmit() {
 
       <CardFooter class="flex flex-col gap-3 pt-4">
         <Button type="submit" class="w-full" :disabled="submitting">
-          <IconLoader2 v-if="submitting" class="size-4 animate-spin" />
-          <IconMail v-else class="size-4" />
+          <Loader2Icon v-if="submitting" class="size-4 animate-spin" />
+          <MailIcon v-else class="size-4" />
           {{ submitting ? 'Sending…' : 'Send reset link' }}
         </Button>
         <p class="text-xs text-muted-foreground text-center">
