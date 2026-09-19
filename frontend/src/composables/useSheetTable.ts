@@ -36,7 +36,7 @@ import {
   pinnedStart,
 } from '@/lib/sheet/grid'
 import type { SheetState } from '@/lib/sheet/state'
-import type { Column, Row, SheetId } from '@/types/contract'
+import type { Column, ColumnId, Row, SheetId } from '@/types/contract'
 
 export interface SheetColumnMeta {
   /** The sheet column; `null` for the gutter. */
@@ -167,5 +167,44 @@ export function useSheetTable(view: Ref<SheetState | null>, sheetId: SheetId) {
 
   const template = computed(() => gridTemplate(headers.value.map((header) => header.getSize())))
 
-  return { table, rows, headers, pinnedCount, gridTemplate: template, rowSelection }
+  /**
+   * Navigable columns in *render* order. This is not `view.columns`: the label
+   * column is pinned and renders first whatever its position, and Tab and Home
+   * have to follow what the user sees. The gutter is never navigable.
+   */
+  const navColumnIds = computed(() =>
+    headers.value.map((header) => header.column.id).filter((id) => id !== GUTTER_COLUMN_ID),
+  )
+
+  /** Width of the pinned start edge, which overlays the scrolled content. */
+  const frozenWidth = computed(() =>
+    table.getStartLeafHeaders().reduce((total, header) => total + header.getSize(), 0),
+  )
+
+  /**
+   * A column's offset and width in the scrolled content, for bringing it into
+   * view. Pinned columns return `null`: they are always visible, so there is
+   * nothing to scroll to. `getStart('center')` is measured among the centre
+   * columns alone, so the pinned tracks ahead of them have to be added back.
+   */
+  function columnRect(columnId: ColumnId): { start: number; size: number } | null {
+    const header = headers.value.find((candidate) => candidate.column.id === columnId)
+    if (!header || header.column.getIsPinned()) return null
+    return {
+      start: frozenWidth.value + header.column.getStart('center'),
+      size: header.getSize(),
+    }
+  }
+
+  return {
+    table,
+    rows,
+    headers,
+    pinnedCount,
+    gridTemplate: template,
+    rowSelection,
+    navColumnIds,
+    frozenWidth,
+    columnRect,
+  }
 }

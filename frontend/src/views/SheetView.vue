@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, useTemplateRef } from 'vue'
 import { RouterLink } from 'vue-router'
 import { TableIcon } from '@lucide/vue'
 
@@ -21,9 +21,12 @@ import { useSheet } from '@/composables/useSheet'
 /** A sheet on its own, outside any conversation (UI-5). */
 const props = defineProps<{ sheetId: string }>()
 
-const { view, status, error, participants, cues, lastChange, pendingCells } = useSheet(
+const { view, status, error, participants, cues, lastChange, pendingCells, apply } = useSheet(
   () => props.sheetId,
 )
+
+const grid = useTemplateRef<{ clearSelection: () => void }>('grid')
+const selectedRowIds = ref<string[]>([])
 const errorMessage = useErrorMessage()
 
 const errorTitle = computed(() =>
@@ -75,9 +78,20 @@ const errorText = computed(() =>
         :status="status"
         :participants="participants"
         :last-change="lastChange"
+        :apply="apply"
+        :selected-row-ids="selectedRowIds"
+        @clear-selection="grid?.clearSelection()"
       />
       <div class="min-h-0 flex-1">
-        <SheetGrid :key="view.id" :view="view" :cues="cues" :pending-cells="pendingCells" />
+        <SheetGrid
+          :key="view.id"
+          ref="grid"
+          :view="view"
+          :cues="cues"
+          :pending-cells="pendingCells"
+          :apply="apply"
+          @update:selected-row-ids="selectedRowIds = $event"
+        />
       </div>
     </template>
   </div>

@@ -240,7 +240,8 @@ Tests use `config :spread_sheet_ai, Oban, testing: :inline` (jobs run synchronou
 
 ## Sheet grid (SPA)
 
-The read-only grid landed in frontend phase F3 (`docs/frontend-plan.md` §7).
+The grid landed in frontend phases F3 (read-only) and F4 (editing) —
+`docs/frontend-plan.md` §7, and §7.6/§7.7 for what each settled.
 
 - `composables/useSheetTable.ts` holds the TanStack v9 table: it owns only
   per-user view state (column widths in `localStorage`, the pinned start
@@ -253,6 +254,23 @@ The read-only grid landed in frontend phase F3 (`docs/frontend-plan.md` §7).
 - Cues (the flash and "changed by" marker) and pending previews reach
   cells through `components/sheet/context.ts` (`provide`/`inject`), keyed
   by `cellKey`. Pure layout helpers live in `lib/sheet/grid.ts`.
+- **Editing:** `composables/useGridNavigation.ts` owns the active cell, the
+  keyboard and the clipboard, and provides `sheetNavKey` from the same
+  `context.ts`. Every *decision* it makes is a pure function in
+  `lib/sheet/navigation.ts` (moves, key → intent, re-anchoring the active
+  cell when its row is deleted remotely) or `lib/sheet/paste.ts` (TSV →
+  `set_cells`), so they are unit-tested without a DOM.
+  - **Focus is on the scroll container, never on a cell** — the virtualizer
+    unmounts rows, so a focused cell would vanish and take the keyboard with
+    it. The active cell is named by `aria-activedescendant`, and the active
+    row is pinned into the virtual range so an open editor survives being
+    scrolled away.
+  - Editors emit the **raw string**; `useGridNavigation.commit` does the
+    `parseInput` / `validateLabel`, so typing and pasting share one path.
+    They are bare `<input>`s, not shadcn `Input`s, which are taller than
+    `ROW_HEIGHT`.
+  - Ops go out through `useSheet().apply` — the store already handles the
+    local preview, the push and the rollback.
 - **TanStack v9's own docs ship in the package**:
   `frontend/node_modules/@tanstack/vue-table/skills/*/SKILL.md`. Read them
   rather than v8 examples from the web.

@@ -52,6 +52,7 @@ src/lib/transport/
   mock/                          in-memory mock backend (§9)
 src/lib/sheet/
   grid.ts                        pure grid layout: default widths, pinned order, --grid-cols, cue freshness
+  navigation.ts                  pure: moves, key → intent, active cell across remote deletes
   apply-op.ts                    pure applyOp(state, op) for Op and AppliedOp
   values.ts                      per-type parse / format / validate (mirrors server casting)
   consistency.ts                 pure reducer: confirmed + pending + incoming events (contract §5.4)
@@ -71,7 +72,11 @@ src/components/sheet/
   SheetRowGutter.vue             row number, swapped for the selection checkbox on hover
   context.ts                     provide/inject of cues, pending cells and the cue clock
   cells/registry.ts              column_type → {display, editor, align}
-  cells/{Text,Number,Boolean,Date,Label}{Display,Editor}.vue
+  cells/{Text,Number,Boolean,Date,Label}Display.vue
+  cells/CellEditor.vue           the shared typed-text editor (text, number, label)
+  cells/DateEditor.vue           the same input plus a Calendar popover
+  ColumnMenu.vue, RowMenu.vue    the structure menus (§7.5)
+  ConfirmDialog.vue, NewRowDialog.vue
   AddColumnDialog.vue, NewRowInput.vue, SheetToolbar.vue, CreateSheetDialog.vue
 src/components/app/
   ParticipantAvatars.vue         shared by the sheet toolbar and (F5) the chat header
@@ -513,7 +518,7 @@ green.
 | [x] | **F1. Foundations** | Dependencies, Vitest, `types/contract.ts`, `AppLayout` + routes, socket and transport interfaces, mock skeleton | The shell navigates between the empty views. The socket connects against the backend's Phase 1, or the mock | none (mock) |
 | [x] | **F2. Sheet state core** | `apply-op`, `values`, `consistency`, `stores/sheets`, `useSheet` (mock sheet server dropped — see §9) | Unit tests cover contract §5.4 and §6 | none |
 | [x] | **F3. Read-only grid** | `useSheetTable`, `SheetGrid` (virtualized, sticky header and label), display cells, `SheetsView` + create dialog, `SheetView` | A 1,000 × 30 sheet from `dev/sheets.exs` scrolls smoothly. Participants and cues render from real `op_applied` events | none (uses the live backend) |
-| [ ] | **F4. Editing** | Navigation, editors, local preview, rollback, structure menus, new row, delete, move, copy/paste, toolbar | Every op can be done from the UI. The mock's simulated remote user's edits show up with cues. **Switch to the real backend at M1**, and two browser windows then stay in sync | **M1** |
+| [x] | **F4. Editing** | Navigation, editors, local preview, rollback, structure menus, new row, delete, move, copy/paste, toolbar | Every op in §4.2 can be done from the UI. Two browser windows stay in sync, and an open editor survives a remote change to its own cell | none (uses the live backend) |
 | [ ] | **F5. Chat** | `stores/conversations`, `ChatPanel`, message rendering, `ConversationsView`, `WorkspaceView` with the split pane and sheet tabs | Chat works against the mock scripted agent. **Switch to the real backend at M2** | **M2** |
 | [ ] | **F6. AI integration** | `focus_sheet` → sheet tabs, linked sheets list, `OpenSheetDialog`, tool call rendering | A `/demo` script on the mock, then real AI tools at **M3**, open and edit sheets live | **M3** |
 | [ ] | **F7. Polish** | Empty and error states, reconnect indicator, a two-browser manual run, docs | The requirements §1 questions are demonstrable end to end | M3 |
@@ -551,6 +556,54 @@ green.
   (`Dev.Sheets.simulate_edits/4`). Load it with `c "dev/sheets.exs"` from
   `iex -S mix phx.server`, so the ops run in the server's own VM and
   broadcast to connected browsers.
+
+### 7.7 What F4 settled
+
+- **Focus lives on the scroll container, never on a cell.** A roving
+  `tabindex` cannot survive virtualization: when the focused cell scrolls out
+  of the overscan band its element is removed, focus silently falls to
+  `<body>`, and the grid goes dead with nothing on screen to explain it. The
+  container is never unmounted, so `document.activeElement` is invariant —
+  which also makes it the reliable target for `copy` and `paste`. The active
+  cell is named by `aria-activedescendant` instead, pointing at a **static**
+  id on the `role="gridcell"` div, so rows gain no reactive dependency on it.
+- **The active row is pinned into the virtual range** through the
+  virtualizer's `rangeExtractor`. Without it, scrolling away from an open
+  editor would unmount it and throw away the user's draft. Verified: with the
+  editor open, `scrollTop = 20000` on the 1,000-row sheet kept the editor and
+  its text, and the DOM still held only 56 rows.
+- **Editors emit their raw string, not a parsed value** — a correction to
+  §7.3. `LabelEditor` was specified to run `validateLabel`, which needs the
+  whole `SheetState` that an editor's props don't carry. Parsing and the label
+  check therefore happen in one place, `useGridNavigation.commit`, and paste
+  goes through the identical path.
+- **A bare `<input>`, not the shadcn `Input`** — also a §7.3 correction. Its
+  height exceeds `ROW_HEIGHT` (32) and would break row alignment, the same
+  reason `BooleanDisplay` is not the shadcn `Checkbox`.
+- **The editor is inline in `SheetCell`**, swapping only the inner component.
+  A grid-level overlay would have to re-derive `--grid-cols` widths on every
+  resize, could not be `position: sticky` for the pinned label column (the
+  most common edit), would have to mirror the row's `translateY`, and would
+  cover the cue marker that §7.4 requires to appear *over* an open editor.
+- **`Ctrl/Cmd+C/V/X` are never `preventDefault`ed.** Swallowing them
+  suppresses the browser's own `copy`/`paste` events, which is how the
+  clipboard is read — `gridIntent` returns an explicit `native` for them so it
+  stays deliberate. `ClipboardEvent.clipboardData` is used rather than
+  `navigator.clipboard`, whose `readText()` is unavailable to page script in
+  Firefox and permission-gated in Chrome.
+- **Paste decides label uniqueness over the whole block.** The server checks
+  labels on their *final* values, so rows may swap them in one op; a one-pass
+  planner would reject a legal swap. Invalid values, out-of-bounds cells and
+  unusable labels are skipped rather than failing the op, because the server
+  applies an op all-or-nothing and one bad cell would discard the rest.
+- **Navigation follows visual order, not `view.columns`.** The label column is
+  pinned and renders first whatever its position, so Tab and Home use
+  `navColumnIds` derived from the table's headers.
+- **`dev/sheets.exs` again stood in for the mock.** F4's "done when"
+  originally named the mock's simulated remote user; two browser tabs against
+  the real backend cover it, and confirmed the §7.4 rule directly: an edit
+  from the second tab landed while the first tab's open editor kept its own
+  draft, and committing it was last-write-wins.
 
 ## 12. Risks
 
