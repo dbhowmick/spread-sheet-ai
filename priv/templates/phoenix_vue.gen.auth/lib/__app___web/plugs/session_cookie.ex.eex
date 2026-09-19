@@ -1,0 +1,43 @@
+defmodule <%= @web_string %>.Plugs.SessionCookie do
+  @moduledoc """
+  Manages the auth session cookie — the cookie that carries the opaque
+  session token. NOT `Plug.Session`; this is a bespoke cookie set via
+  `put_resp_cookie/4` so the raw token never flows through Phoenix's
+  signed session payload.
+  """
+
+  alias <%= @base_string %>.Auth.Config
+  alias Plug.Conn
+
+  @doc "Sets the auth session cookie carrying `raw_token`."
+  def put(%Conn{} = conn, raw_token) do
+    Conn.put_resp_cookie(conn, Config.session_cookie_name(), raw_token, attrs())
+  end
+
+  @doc "Clears the auth session cookie."
+  def delete(%Conn{} = conn) do
+    Conn.delete_resp_cookie(conn, Config.session_cookie_name(), attrs())
+  end
+
+  @doc "Reads the raw token from the request cookie."
+  def fetch(%Conn{} = conn) do
+    conn = Conn.fetch_cookies(conn)
+
+    case Map.get(conn.cookies, Config.session_cookie_name()) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> :error
+    end
+  end
+
+  defp attrs do
+    [
+      http_only: true,
+      secure: Config.session_cookie_secure?(),
+      same_site: "Lax",
+      domain: Config.session_cookie_domain(),
+      max_age: Config.session_max_age_seconds(),
+      path: "/"
+    ]
+    |> Enum.reject(fn {_, v} -> is_nil(v) end)
+  end
+end

@@ -1,0 +1,70 @@
+defmodule <%= @base_string %>.AuthFixtures do
+  @moduledoc "Test fixtures for users, sessions, and organizations."
+
+  alias <%= @base_string %>.Accounts
+  alias <%= @base_string %>.Accounts.{PasswordCredential, Session, User}
+  alias <%= @base_string %>.Organizations
+  alias <%= @base_string %>.Organizations.{Member, Organization}
+  alias <%= @repo_string %>
+
+  @default_password "test-password-123!"
+
+  def default_password, do: @default_password
+
+  @doc "Creates an unverified password user."
+  def user_fixture(attrs \\ %{}) do
+    suffix = unique()
+
+    attrs =
+      Map.merge(
+        %{
+          primary_email: "user-#{suffix}@example.com",
+          password: @default_password,
+          display_name: "User #{suffix}"
+        },
+        Enum.into(attrs, %{})
+      )
+
+    {:ok, %{user: user}} = Accounts.register_user(attrs)
+    user
+  end
+
+  @doc "Creates a verified password user (ready to sign in)."
+  def verified_user_fixture(attrs \\ %{}) do
+    user = user_fixture(attrs)
+    {:ok, user} = user |> User.confirm_email_changeset() |> Repo.update()
+    Repo.preload(user, :password_credential)
+  end
+
+  @doc "Creates an organization owned by `user`. Returns `%{user, organization, member, session}`."
+  def organization_fixture(user \\ nil, attrs \\ %{}) do
+    user = user || verified_user_fixture()
+    {:ok, %{session: session}} = Accounts.create_session(user, nil, %{})
+
+    attrs = Enum.into(attrs, %{name: "Org #{unique()}"})
+    {:ok, result} = Organizations.create_organization_for_user(user, session, attrs)
+
+    %{
+      user: user,
+      organization: result.organization,
+      member: result.member,
+      session: result.session
+    }
+  end
+
+  @doc "Creates a fresh session for `user` with the given current member (or nil)."
+  def session_fixture(%User{} = user, current_member_id \\ nil) do
+    {:ok, %{session: session, raw_token: raw_token}} =
+      Accounts.create_session(user, current_member_id, %{})
+
+    %{session: session, raw_token: raw_token}
+  end
+
+  @doc false
+  def unique do
+    System.unique_integer([:positive]) |> Integer.to_string()
+  end
+
+  # Re-export schema modules for tests that use them directly.
+  def schema_modules, do: %{user: User, credential: PasswordCredential, session: Session, organization: Organization, member: Member}
+end

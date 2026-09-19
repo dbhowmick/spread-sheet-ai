@@ -1,0 +1,75 @@
+defmodule <%= @base_string %>.OrganizationsTest do
+  use <%= @base_string %>.DataCase, async: true
+
+  alias <%= @base_string %>.Accounts
+  alias <%= @base_string %>.AuthFixtures
+  alias <%= @base_string %>.Organizations
+
+  describe "create_organization_for_user/3" do
+    test "creates org + owner Member, and updates the session" do
+      user = AuthFixtures.verified_user_fixture()
+      {:ok, %{session: session}} = Accounts.create_session(user, nil, %{})
+
+      assert {:ok, %{organization: org, member: member, session: updated_session}} =
+               Organizations.create_organization_for_user(user, session, %{name: "Acme Inc."})
+
+      assert org.name == "Acme Inc."
+      assert org.slug == "acme-inc"
+      assert member.role == "owner"
+      assert member.status == "active"
+      assert member.user_id == user.id
+      assert updated_session.current_member_id == member.id
+    end
+
+    test "auto-suffixes a colliding slug" do
+      user = AuthFixtures.verified_user_fixture()
+      _ = AuthFixtures.organization_fixture(user, name: "Acme")
+
+      user2 = AuthFixtures.verified_user_fixture()
+      {:ok, %{session: session}} = Accounts.create_session(user2, nil, %{})
+
+      assert {:ok, %{organization: org}} =
+               Organizations.create_organization_for_user(user2, session, %{name: "Acme"})
+
+      assert org.slug == "acme-2"
+    end
+  end
+
+  describe "list_memberships_for_user/1" do
+    test "returns all of a user's active memberships, with :organization preloaded" do
+      user = AuthFixtures.verified_user_fixture()
+      %{member: m1, organization: o1} = AuthFixtures.organization_fixture(user, name: "First")
+      %{member: m2, organization: o2} = AuthFixtures.organization_fixture(user, name: "Second")
+
+      memberships = Organizations.list_memberships_for_user(user.id)
+      assert length(memberships) == 2
+
+      ids = Enum.map(memberships, & &1.id)
+      assert m1.id in ids
+      assert m2.id in ids
+
+      org_ids = Enum.map(memberships, & &1.organization.id)
+      assert o1.id in org_ids
+      assert o2.id in org_ids
+    end
+  end
+
+  describe "verify_member_for_user/2" do
+    test "returns the member when owned by the user" do
+      %{user: user, member: member} = AuthFixtures.organization_fixture()
+      assert {:ok, found} = Organizations.verify_member_for_user(user, member.id)
+      assert found.id == member.id
+    end
+
+    test "returns :forbidden when the member belongs to a different user" do
+      %{member: member} = AuthFixtures.organization_fixture()
+      other_user = AuthFixtures.verified_user_fixture()
+      assert {:error, :forbidden} = Organizations.verify_member_for_user(other_user, member.id)
+    end
+
+    test "returns :not_found for a missing member id" do
+      user = AuthFixtures.verified_user_fixture()
+      assert {:error, :not_found} = Organizations.verify_member_for_user(user, Ecto.UUID.generate())
+    end
+  end
+end

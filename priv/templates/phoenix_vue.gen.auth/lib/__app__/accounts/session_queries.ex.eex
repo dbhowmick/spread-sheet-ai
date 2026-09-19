@@ -1,0 +1,32 @@
+defmodule <%= @base_string %>.Accounts.SessionQueries do
+  @moduledoc "Composable queries for `<%= @base_string %>.Accounts.Session`."
+
+  import Ecto.Query
+
+  alias <%= @base_string %>.Accounts.Session
+
+  def by_token_hash(query \\ Session, hash) do
+    where(query, [s], s.token_hash == ^hash)
+  end
+
+  def for_user(query \\ Session, user_id) do
+    where(query, [s], s.user_id == ^user_id)
+  end
+
+  def active(query \\ Session) do
+    now = DateTime.utc_now()
+    where(query, [s], is_nil(s.revoked_at) and s.expires_at > ^now)
+  end
+
+  def expired(query \\ Session, cutoff_at) do
+    where(query, [s], s.expires_at < ^cutoff_at)
+  end
+
+  def by_id_for_user(query \\ Session, id, user_id) do
+    where(query, [s], s.id == ^id and s.user_id == ^user_id)
+  end
+
+  def paginate(query, page, page_size) do
+    query |> limit(^page_size) |> offset(^((page - 1) * page_size))
+  end
+end

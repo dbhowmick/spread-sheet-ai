@@ -1,0 +1,30 @@
+defmodule <%= @repo_string %>.Migrations.CreateSessions do
+  use Ecto.Migration
+
+  def change do
+    create table(:sessions, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+
+      add :user_id,
+          references(:users, type: :binary_id, on_delete: :delete_all),
+          null: false
+
+      add :current_member_id,
+          references(:members, type: :binary_id, on_delete: :nilify_all),
+          null: true
+
+      add :token_hash, :binary, null: false
+      add :ip_address, :string
+      add :user_agent, :string
+      add :last_used_at, :utc_datetime, null: false
+      add :expires_at, :utc_datetime, null: false
+      add :revoked_at, :utc_datetime
+
+      timestamps(type: :utc_datetime, updated_at: false)
+    end
+
+    create unique_index(:sessions, [:token_hash])
+    create index(:sessions, [:user_id])
+    create index(:sessions, [:expires_at])
+  end
+end

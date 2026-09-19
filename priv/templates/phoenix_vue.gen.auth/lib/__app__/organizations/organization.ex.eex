@@ -1,0 +1,57 @@
+defmodule <%= @base_string %>.Organizations.Organization do
+  @moduledoc """
+  The tenant. Owns all tenant-scoped entities (Member and anything you add
+  later that belongs to an org). Lives below the global-identity boundary
+  defined by `User`.
+  """
+
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  alias <%= @base_string %>.Organizations.Member
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+  @timestamps_opts [type: :utc_datetime]
+
+  @statuses ~w(active suspended deleted)
+
+  schema "organizations" do
+    field :name, :string
+    field :slug, :string
+    field :status, :string, default: "active"
+    field :settings, :map, default: %{}
+
+    field :deleted_at, :utc_datetime
+
+    has_many :members, Member
+
+    timestamps()
+  end
+
+  def changeset(organization, attrs) do
+    organization
+    |> cast(attrs, [:name, :slug, :status, :settings])
+    |> validate_required([:name, :slug])
+    |> validate_length(:name, min: 1, max: 120)
+    |> validate_format(:slug, ~r/^[a-z0-9]+(-[a-z0-9]+)*$/,
+      message: "must be lowercase alphanumeric with hyphens"
+    )
+    |> validate_length(:slug, min: 2, max: 64)
+    |> validate_inclusion(:status, @statuses)
+    |> unique_constraint(:slug)
+  end
+
+  @doc false
+  def statuses, do: @statuses
+
+  @doc """
+  Maps Postgres constraint names to stable API error codes for the fallback
+  controller's changeset translator.
+  """
+  def api_error_codes do
+    %{
+      "organizations_slug_index" => "slug_taken"
+    }
+  end
+end

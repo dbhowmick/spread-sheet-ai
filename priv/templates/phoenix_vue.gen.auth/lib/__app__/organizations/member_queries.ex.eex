@@ -1,0 +1,57 @@
+defmodule <%= @base_string %>.Organizations.MemberQueries do
+  @moduledoc "Composable queries for `<%= @base_string %>.Organizations.Member`."
+
+  import Ecto.Query
+
+  alias <%= @base_string %>.Organizations.Member
+
+  def by_id(query \\ Member, id) do
+    where(query, [m], m.id == ^id)
+  end
+
+  def for_user(query \\ Member, user_id) do
+    where(query, [m], m.user_id == ^user_id)
+  end
+
+  def for_user_and_organization(query \\ Member, user_id, organization_id) do
+    where(query, [m], m.user_id == ^user_id and m.organization_id == ^organization_id)
+  end
+
+  def by_invite_token_hash(query \\ Member, hash) do
+    where(query, [m], m.invite_token_hash == ^hash and m.status == "invited")
+  end
+
+  def active_for_organization(query \\ Member, organization_id) do
+    where(query, [m], m.organization_id == ^organization_id and m.status == "active")
+  end
+
+  def active_owners_for_organization(query \\ Member, organization_id) do
+    where(
+      query,
+      [m],
+      m.organization_id == ^organization_id and m.status == "active" and m.role == "owner"
+    )
+  end
+
+  def count_for_user(query \\ Member, user_id) do
+    query
+    |> where([m], m.user_id == ^user_id)
+    |> select([m], count(m.id))
+  end
+
+  def with_organization(query \\ Member) do
+    preload(query, :organization)
+  end
+
+  def pending_invite_in_organization(query \\ Member, email, organization_id) do
+    normalized = email |> to_string() |> String.downcase()
+
+    where(
+      query,
+      [m],
+      fragment("lower(?)", m.email) == ^normalized and
+        m.organization_id == ^organization_id and
+        m.status in ["invited", "active"]
+    )
+  end
+end

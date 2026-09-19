@@ -1,0 +1,26 @@
+defmodule <%= @web_string %>.Plugs.RequireMember do
+  @moduledoc """
+  Halts with `403` + canonical error envelope when there is no
+  `current_member` on the conn. Assumes `RequireAuthentication` ran first.
+  """
+
+  @behaviour Plug
+
+  import Plug.Conn
+  import Phoenix.Controller, only: [json: 2]
+
+  alias <%= @web_string %>.Api.Errors
+
+  @impl Plug
+  def init(opts), do: opts
+
+  @impl Plug
+  def call(%Plug.Conn{assigns: %{current_member: nil}} = conn, _opts) do
+    conn
+    |> put_status(:forbidden)
+    |> json(Errors.from_code("no_organization_context"))
+    |> halt()
+  end
+
+  def call(conn, _opts), do: conn
+end

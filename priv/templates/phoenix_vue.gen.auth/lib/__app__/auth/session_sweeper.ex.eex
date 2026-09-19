@@ -1,0 +1,33 @@
+defmodule <%= @base_string %>.Auth.SessionSweeper do
+  @moduledoc """
+  Deletes `sessions` rows that expired more than a day ago. The auth plug
+  already rejects expired sessions at request time, so the sweeper is
+  housekeeping — keeping the table bounded.
+
+  Scheduled hourly by `Oban.Plugins.Cron` (see `config/runtime.exs`).
+  """
+
+  use Oban.Worker, queue: :default, max_attempts: 3
+
+  import Ecto.Query
+
+  alias <%= @base_string %>.Accounts.Session
+  alias <%= @base_string %>.Repo
+
+  @grace_period_seconds 60 * 60 * 24
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{}) do
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.add(-@grace_period_seconds, :second)
+      |> DateTime.truncate(:second)
+
+    {count, _} =
+      Session
+      |> where([s], s.expires_at < ^cutoff)
+      |> Repo.delete_all()
+
+    {:ok, %{deleted: count}}
+  end
+end

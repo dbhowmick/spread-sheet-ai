@@ -1,0 +1,45 @@
+defmodule <%= @web_string %>.Plugs.FetchUserSessionTest do
+  use <%= @web_string %>.ConnCase, async: true
+
+  alias <%= @base_string %>.Auth.Config
+  alias <%= @base_string %>.AuthFixtures
+  alias <%= @web_string %>.Plugs.FetchUserSession
+
+  setup do
+    user = AuthFixtures.verified_user_fixture()
+    %{session: session, raw_token: raw_token} = AuthFixtures.session_fixture(user)
+    {:ok, user: user, session: session, raw_token: raw_token}
+  end
+
+  test "assigns current_user when the cookie is valid", %{
+    conn: conn,
+    user: user,
+    session: session,
+    raw_token: raw_token
+  } do
+    conn =
+      conn
+      |> put_req_cookie(Config.session_cookie_name(), raw_token)
+      |> FetchUserSession.call([])
+
+    assert conn.assigns.current_user.id == user.id
+    assert conn.assigns.current_session.id == session.id
+    assert conn.assigns.current_member == nil
+  end
+
+  test "assigns nils when the cookie is missing", %{conn: conn} do
+    conn = FetchUserSession.call(conn, [])
+    assert conn.assigns.current_user == nil
+    assert conn.assigns.current_member == nil
+    assert conn.assigns.current_session == nil
+  end
+
+  test "assigns nils when the cookie token is bogus", %{conn: conn} do
+    conn =
+      conn
+      |> put_req_cookie(Config.session_cookie_name(), "totally-not-a-real-token")
+      |> FetchUserSession.call([])
+
+    assert conn.assigns.current_user == nil
+  end
+end

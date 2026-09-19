@@ -1,0 +1,61 @@
+defmodule <%= @web_string %>.Api.SessionsControllerTest do
+  use <%= @web_string %>.ConnCase, async: true
+
+  alias <%= @base_string %>.Auth.Config
+  alias <%= @base_string %>.AuthFixtures
+
+  describe "POST /api/sessions" do
+    test "signs in and sets the auth cookie", %{conn: conn} do
+      user = AuthFixtures.verified_user_fixture(primary_email: "ok@example.com")
+
+      conn =
+        post(conn, ~p"/api/sessions", %{
+          email: "ok@example.com",
+          password: AuthFixtures.default_password()
+        })
+
+      body = json_response(conn, 201)
+      assert body["me"]["user"]["id"] == user.id
+      assert body["me"]["user"]["primary_email"] == "ok@example.com"
+
+      cookies = conn.resp_cookies
+      assert Map.has_key?(cookies, Config.session_cookie_name())
+    end
+
+    test "returns 401 on wrong password", %{conn: conn} do
+      _ = AuthFixtures.verified_user_fixture(primary_email: "ok@example.com")
+
+      conn = post(conn, ~p"/api/sessions", %{email: "ok@example.com", password: "nope"})
+
+      assert json_response(conn, 401)["errors"] |> hd() |> Map.fetch!("code") ==
+               "invalid_credentials"
+    end
+
+    test "returns 401 on unknown email (no enumeration)", %{conn: conn} do
+      conn = post(conn, ~p"/api/sessions", %{email: "nobody@example.com", password: "x"})
+      assert json_response(conn, 401)["errors"] |> hd() |> Map.fetch!("code") == "invalid_credentials"
+    end
+  end
+
+  describe "DELETE /api/sessions/current" do
+    test "deletes the session and clears the cookie", %{conn: conn} do
+      user = AuthFixtures.verified_user_fixture()
+      %{raw_token: raw_token} = AuthFixtures.session_fixture(user)
+
+      conn =
+        conn
+        |> put_req_cookie(Config.session_cookie_name(), raw_token)
+        |> delete(~p"/api/sessions/current")
+
+      assert response(conn, 204)
+      assert conn.resp_cookies[Config.session_cookie_name()].max_age == 0
+    end
+  end
+
+  describe "GET /api/me without a session" do
+    test "returns 401", %{conn: conn} do
+      conn = get(conn, ~p"/api/me")
+      assert json_response(conn, 401)["errors"] |> hd() |> Map.fetch!("code") == "unauthenticated"
+    end
+  end
+end

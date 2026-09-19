@@ -1,0 +1,50 @@
+defmodule <%= @base_string %>.Auth.Config do
+  @moduledoc """
+  Typed accessors for the `:<%= @app_string %>, :auth` config block. Reading
+  via the accessors gives us one place to add validation, defaults, and
+  documentation rather than scattering `Application.get_env/2` calls.
+  """
+
+  def password_min_length, do: get(:password_min_length, 8)
+  def password_max_length, do: get(:password_max_length, 128)
+
+  def session_max_age_days, do: get(:session_max_age_days, 30)
+  def session_max_age_seconds, do: session_max_age_days() * 24 * 60 * 60
+  def session_last_used_throttle_seconds, do: get(:session_last_used_throttle_seconds, 60)
+
+  def failed_signin_threshold, do: get(:failed_signin_threshold, 5)
+  def failed_signin_lockout_minutes, do: get(:failed_signin_lockout_minutes, 15)
+
+  def email_verification_token_ttl_minutes,
+    do: get(:email_verification_token_ttl_minutes, 60 * 24)
+
+  def password_reset_token_ttl_minutes, do: get(:password_reset_token_ttl_minutes, 60)
+  def invite_token_ttl_days, do: get(:invite_token_ttl_days, 14)
+
+  def session_cookie_name, do: get(:session_cookie_name, "_<%= @app_string %>_auth")
+  def session_cookie_domain, do: get(:session_cookie_domain, nil)
+  def session_cookie_secure?, do: get(:session_cookie_secure, false)
+
+  @doc """
+  The base URL used in outbound email links (verification, password reset).
+  Defaults to the endpoint's configured URL; override via
+  `config :<%= @app_string %>, :auth, base_url: "https://app.example.com"`.
+  """
+  def base_url do
+    case get(:base_url, nil) do
+      url when is_binary(url) -> url
+      nil -> <%= @web_string %>.Endpoint.url()
+    end
+  end
+
+  @doc "The display name + email used as the `From:` on auth emails."
+  def mail_from do
+    get(:mail_from, {"<%= @base_string %>", "noreply@example.com"})
+  end
+
+  defp get(key, default) do
+    :<%= @app_string %>
+    |> Application.get_env(:auth, [])
+    |> Keyword.get(key, default)
+  end
+end

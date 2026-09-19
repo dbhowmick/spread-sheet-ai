@@ -1,0 +1,66 @@
+defmodule <%= @web_string %>.Api.RegistrationController do
+  use <%= @web_string %>, :controller
+
+  alias <%= @base_string %>.Accounts
+  alias <%= @base_string %>.Accounts.User
+  alias <%= @base_string %>.Auth.Mailer.DeliverWorker
+
+  action_fallback <%= @web_string %>.Api.FallbackController
+
+  # POST /api/auth/register — enumeration-safe; always 204 on valid input.
+  def create(conn, params) do
+    with {:ok, attrs} <- extract_params(params) do
+      attempt_registration(conn, attrs)
+    end
+  end
+
+  defp attempt_registration(conn, attrs) do
+    email = Map.get(attrs, :primary_email) |> String.downcase()
+
+    case Accounts.get_user_by_email(email) do
+      nil ->
+        register_new(conn, attrs)
+
+      %User{primary_email_verified: true} ->
+        send_resp(conn, :no_content, "")
+
+      %User{primary_email_verified: false} = user ->
+        enqueue_verification_email(user.id)
+        send_resp(conn, :no_content, "")
+    end
+  end
+
+  defp register_new(conn, attrs) do
+    case Accounts.register_user(attrs) do
+      {:ok, %{user: user}} ->
+        enqueue_verification_email(user.id)
+        send_resp(conn, :no_content, "")
+
+      {:error, %Ecto.Changeset{errors: errors}} = error ->
+        # Email-uniqueness errors are enumeration-masked. Everything else
+        # (password policy, etc.) goes through the fallback controller.
+        if Keyword.has_key?(errors, :primary_email) do
+          send_resp(conn, :no_content, "")
+        else
+          error
+        end
+    end
+  end
+
+  defp enqueue_verification_email(user_id) do
+    %{"kind" => "verification", "user_id" => user_id}
+    |> DeliverWorker.new()
+    |> Oban.insert()
+  end
+
+  defp extract_params(%{"email" => email, "password" => password} = params) do
+    {:ok,
+     %{
+       primary_email: email,
+       password: password,
+       display_name: Map.get(params, "display_name")
+     }}
+  end
+
+  defp extract_params(_), do: {:error, :invalid_email}
+end

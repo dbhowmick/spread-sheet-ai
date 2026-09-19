@@ -1,0 +1,33 @@
+defmodule <%= @base_string %>.Auth.Token do
+  @moduledoc """
+  The single token primitive used by sessions, email verification, and
+  password reset. Also reused by Member invite columns.
+
+  Tokens are 32 bytes from `:crypto.strong_rand_bytes/1`, transported as
+  Base64url (no padding), stored only as a 32-byte SHA-256 hash.
+  """
+
+  @byte_size 32
+
+  @doc """
+  Generates a fresh token. Returns `{raw_token, hash}` where:
+
+    * `raw_token` — Base64url-encoded string, suitable for emailing and
+      stuffing into cookies. Never persist this.
+    * `hash` — raw 32-byte binary suitable for a `:binary` Ecto column.
+  """
+  def generate do
+    raw = :crypto.strong_rand_bytes(@byte_size)
+    {Base.url_encode64(raw, padding: false), hash_raw(raw)}
+  end
+
+  @doc "Hashes a Base64url-encoded raw token for lookup."
+  def hash(raw_token) when is_binary(raw_token) do
+    case Base.url_decode64(raw_token, padding: false) do
+      {:ok, bytes} -> hash_raw(bytes)
+      :error -> hash_raw(raw_token)
+    end
+  end
+
+  defp hash_raw(bytes), do: :crypto.hash(:sha256, bytes)
+end

@@ -1,0 +1,75 @@
+defmodule <%= @base_string %>.Accounts.Session do
+  @moduledoc """
+  A live authenticated session. Postgres-backed; the browser cookie carries
+  an opaque 32-byte random token whose SHA-256 hash is stored here. The raw
+  token never persists.
+
+  `current_member_id` is a plain `Ecto.UUID` field, NOT a `belongs_to`
+  association into `<%= @base_string %>.Organizations.Member`. A schema-level
+  association would create a compile-time dependency from
+  `<%= @base_string %>.Accounts` → `<%= @base_string %>.Organizations` and
+  (combined with the reverse function-call dependency) reify a context cycle
+  that downstream contexts would inherit transitively. Callers that need the
+  Member load it via `<%= @base_string %>.Organizations.get_member/1`
+  after the Session is fetched.
+  """
+
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  alias <%= @base_string %>.Accounts.User
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+  @timestamps_opts [type: :utc_datetime, updated_at: false]
+
+  schema "sessions" do
+    belongs_to :user, User
+
+    field :current_member_id, Ecto.UUID
+    field :token_hash, :binary
+    field :ip_address, :string
+    field :user_agent, :string
+    field :last_used_at, :utc_datetime
+    field :expires_at, :utc_datetime
+    field :revoked_at, :utc_datetime
+
+    timestamps()
+  end
+
+  def changeset(session, attrs) do
+    session
+    |> cast(attrs, [
+      :user_id,
+      :current_member_id,
+      :token_hash,
+      :ip_address,
+      :user_agent,
+      :last_used_at,
+      :expires_at,
+      :revoked_at
+    ])
+    |> validate_required([:user_id, :token_hash, :last_used_at, :expires_at])
+  end
+
+  def touch_changeset(session, last_used_at, expires_at) do
+    change(session, %{last_used_at: last_used_at, expires_at: expires_at})
+  end
+
+  def update_member_changeset(session, current_member_id) do
+    change(session, %{current_member_id: current_member_id})
+  end
+
+  @doc """
+  Rotates the session's `token_hash` and resets lifecycle timestamps. Called
+  after privilege-changing actions (currently password change) so a token
+  leaked pre-rotation stops working immediately.
+  """
+  def rotate_token_changeset(session, token_hash, now, expires_at) do
+    change(session, %{
+      token_hash: token_hash,
+      last_used_at: now,
+      expires_at: expires_at
+    })
+  end
+end

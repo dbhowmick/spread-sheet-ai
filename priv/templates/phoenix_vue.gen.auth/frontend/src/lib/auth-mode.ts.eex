@@ -1,0 +1,17 @@
+/**
+ * Auth mode baked in by `mix phoenix_vue.gen.auth --mode <%= @mode %>`.
+ *
+ * - `'multi'` (default) — users belong to N organizations. Sign-up routes
+ *   first-time users to onboarding to name their first org. An org
+ *   switcher belongs in your app chrome (see
+ *   `components/org/OrganizationSwitcher.vue`).
+ * - `'single'` — every user belongs to exactly one organization,
+ *   auto-created at signup. The onboarding screen is skipped. No org
+ *   switcher.
+ *
+ * Components branch on this constant via `v-if="MODE === 'multi'"`.
+ * Flipping a project from single → multi later: change this constant
+ * AND drop the `members_single_tenant_user_id_index` partial unique
+ * index in a new migration.
+ */
+export const MODE: 'single' | 'multi' = '<%= @mode %>'

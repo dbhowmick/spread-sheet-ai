@@ -1,0 +1,31 @@
+defmodule <%= @web_string %>.Plugs.RequestMeta do
+  @moduledoc """
+  Small helpers for pulling request metadata (client IP, user agent) off
+  the conn. Used when creating sessions and other auth events that should
+  record where they came from.
+  """
+
+  alias Plug.Conn
+
+  @doc "Best-effort client IP as a string. Honors `X-Forwarded-For` first."
+  def client_ip(%Conn{} = conn) do
+    case Conn.get_req_header(conn, "x-forwarded-for") do
+      [value | _] ->
+        value
+        |> String.split(",", parts: 2)
+        |> hd()
+        |> String.trim()
+
+      [] ->
+        conn.remote_ip |> :inet.ntoa() |> to_string()
+    end
+  end
+
+  @doc "User-Agent header or `nil`."
+  def user_agent(%Conn{} = conn) do
+    case Conn.get_req_header(conn, "user-agent") do
+      [ua | _] -> ua
+      _ -> nil
+    end
+  end
+end

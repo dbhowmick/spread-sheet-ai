@@ -1,0 +1,91 @@
+defmodule <%= @web_string %>.Plugs.FetchUserSession do
+  @moduledoc """
+  Loads the authenticated User and current Member from the auth session
+  cookie. Assigns `:current_user`, `:current_member`, and `:current_session`
+  (or all `nil`) on the connection. Throttle-bumps `sessions.last_used_at`.
+
+  Does NOT halt for missing/invalid sessions — leaves enforcement to
+  `RequireAuthentication`.
+  """
+
+  @behaviour Plug
+
+  require Logger
+
+  import Plug.Conn
+
+  alias <%= @base_string %>.Accounts
+  alias <%= @base_string %>.Accounts.Session
+  alias <%= @base_string %>.Organizations
+  alias <%= @web_string %>.Plugs.SessionCookie
+
+  @impl Plug
+  def init(opts), do: opts
+
+  @impl Plug
+  def call(conn, _opts) do
+    with {:ok, raw_token} <- SessionCookie.fetch(conn),
+         %Session{} = session <- Accounts.fetch_session_by_token(raw_token) do
+      session = Accounts.maybe_touch_session(session)
+      member = load_current_member(session, session.current_member_id)
+
+      Logger.metadata(
+        user_id: session.user_id,
+        session_id: session.id,
+        current_member_id: member && member.id,
+        organization_id: member && member.organization_id
+      )
+
+      conn
+      |> assign(:current_user, session.user)
+      |> assign(:current_member, member)
+      |> assign(:current_session, session)
+    else
+      _ ->
+        conn
+        |> assign(:current_user, nil)
+        |> assign(:current_member, nil)
+        |> assign(:current_session, nil)
+    end
+  end
+
+  defp load_current_member(_session, nil), do: nil
+
+  defp load_current_member(session, member_id) when is_binary(member_id) do
+    raw = Organizations.get_member_with_organization(member_id)
+
+    case filter_active_member(raw) do
+      nil ->
+        Logger.warning("session.member_rejected",
+          session_id: session.id,
+          current_member_id: member_id,
+          reason: rejection_reason(raw)
+        )
+
+        nil
+
+      member ->
+        member
+    end
+  end
+
+  defp filter_active_member(nil), do: nil
+
+  defp filter_active_member(
+         %{status: "active", organization: %{status: "active", deleted_at: nil}} = m
+       ),
+       do: m
+
+  defp filter_active_member(_), do: nil
+
+  defp rejection_reason(nil), do: :member_not_found
+  defp rejection_reason(%{status: status}) when status != "active", do: :member_inactive
+
+  defp rejection_reason(%{organization: %{deleted_at: deleted_at}}) when not is_nil(deleted_at),
+    do: :organization_deleted
+
+  defp rejection_reason(%{organization: %{status: status}}) when status != "active",
+    do: :organization_inactive
+
+  defp rejection_reason(_), do: :unknown
+end

@@ -1,0 +1,61 @@
+defmodule <%= @web_string %>.Api.RegistrationControllerTest do
+  use <%= @web_string %>.ConnCase, async: true
+
+  alias <%= @base_string %>.AuthFixtures
+
+  describe "POST /api/auth/register" do
+    test "returns 204 and creates the user", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/auth/register", %{
+          email: "fresh@example.com",
+          password: "pa55word-12345",
+          display_name: "Fresh"
+        })
+
+      assert response(conn, 204)
+    end
+
+    test "returns 204 for a duplicate email (enumeration-safe)", %{conn: conn} do
+      _ = AuthFixtures.user_fixture(primary_email: "taken@example.com")
+
+      conn =
+        post(conn, ~p"/api/auth/register", %{
+          email: "taken@example.com",
+          password: "pa55word-12345"
+        })
+
+      assert response(conn, 204)
+    end
+
+    test "returns 204 for a duplicate verified email (enumeration-safe)", %{conn: conn} do
+      _ = AuthFixtures.verified_user_fixture(primary_email: "verified@example.com")
+
+      conn =
+        post(conn, ~p"/api/auth/register", %{
+          email: "verified@example.com",
+          password: "pa55word-12345"
+        })
+
+      assert response(conn, 204)
+    end
+
+    test "returns 422 with field errors on a too-short password", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/auth/register", %{
+          email: "weak@example.com",
+          password: "abc"
+        })
+
+      assert json_response(conn, 422) == %{
+               "errors" => [
+                 %{
+                   "code" => "too_short",
+                   "message" => "is too short",
+                   "field" => "password",
+                   "meta" => %{}
+                 }
+               ]
+             }
+    end
+  end
+end

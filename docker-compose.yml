@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg18
+    environment:
+      POSTGRES_DB: spread_sheet_ai_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "6432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d spread_sheet_ai_dev"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:

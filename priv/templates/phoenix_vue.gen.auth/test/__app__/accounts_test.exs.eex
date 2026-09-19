@@ -1,0 +1,111 @@
+defmodule <%= @base_string %>.AccountsTest do
+  use <%= @base_string %>.DataCase, async: true
+
+  alias <%= @base_string %>.Accounts
+  alias <%= @base_string %>.AuthFixtures
+
+  describe "register_user/1" do
+    test "creates an unverified user + password credential + verification token" do
+      assert {:ok, %{user: user, credential: credential, verification_token: raw_token}} =
+               Accounts.register_user(%{
+                 primary_email: "new@example.com",
+                 password: "pa55word-12345",
+                 display_name: "Test"
+               })
+
+      assert user.primary_email == "new@example.com"
+      refute user.primary_email_verified
+      assert user.email_verification_token_hash != nil
+      assert credential.user_id == user.id
+      assert is_binary(raw_token) and byte_size(raw_token) > 0
+    end
+
+    test "rejects a too-short password" do
+      assert {:error, changeset} =
+               Accounts.register_user(%{primary_email: "x@example.com", password: "short"})
+
+      assert "is too short" in errors_on(changeset).password
+    end
+
+    test "rejects an invalid email" do
+      assert {:error, changeset} =
+               Accounts.register_user(%{primary_email: "not-an-email", password: "pa55word-12345"})
+
+      assert "is invalid" in errors_on(changeset).primary_email
+    end
+
+    test "rejects a duplicate email" do
+      _ = AuthFixtures.user_fixture(primary_email: "dup@example.com")
+
+      assert {:error, changeset} =
+               Accounts.register_user(%{
+                 primary_email: "dup@example.com",
+                 password: "pa55word-12345"
+               })
+
+      assert "has already been taken" in errors_on(changeset).primary_email
+    end
+  end
+
+  describe "verify_email/1" do
+    test "consumes a fresh token and flips primary_email_verified" do
+      {:ok, %{user: user, verification_token: raw_token}} =
+        Accounts.register_user(%{primary_email: "v@example.com", password: "pa55word-12345"})
+
+      assert {:ok, confirmed} = Accounts.verify_email(raw_token)
+      assert confirmed.id == user.id
+      assert confirmed.primary_email_verified
+      assert confirmed.email_verification_token_hash == nil
+    end
+
+    test "returns :invalid_token for an unknown token" do
+      assert {:error, :invalid_token} = Accounts.verify_email("not-a-real-token-aaaaaaaaaaaaaa")
+    end
+  end
+
+  describe "authenticate/2" do
+    test "returns the user on correct password" do
+      user = AuthFixtures.verified_user_fixture(primary_email: "ok@example.com")
+      assert {:ok, returned} = Accounts.authenticate("ok@example.com", AuthFixtures.default_password())
+      assert returned.id == user.id
+    end
+
+    test "is case-insensitive on email" do
+      _ = AuthFixtures.verified_user_fixture(primary_email: "case@example.com")
+      assert {:ok, _} = Accounts.authenticate("CASE@example.com", AuthFixtures.default_password())
+    end
+
+    test "returns :invalid_credentials for unknown email (no enumeration)" do
+      assert {:error, :invalid_credentials} =
+               Accounts.authenticate("nobody@example.com", "anything")
+    end
+
+    test "returns :invalid_credentials for wrong password" do
+      _ = AuthFixtures.verified_user_fixture(primary_email: "wrong@example.com")
+      assert {:error, :invalid_credentials} = Accounts.authenticate("wrong@example.com", "nope")
+    end
+
+    test "returns :email_not_verified for an unverified user" do
+      _ = AuthFixtures.user_fixture(primary_email: "unverified@example.com")
+
+      assert {:error, :email_not_verified, _user} =
+               Accounts.authenticate("unverified@example.com", AuthFixtures.default_password())
+    end
+  end
+
+  describe "complete_password_reset/2" do
+    test "swaps the password and revokes all sessions" do
+      user = AuthFixtures.verified_user_fixture(primary_email: "reset@example.com")
+      {:ok, %{reset_token: token}} = Accounts.start_password_reset("reset@example.com")
+
+      _ = AuthFixtures.session_fixture(user)
+
+      assert {:ok, _credential} = Accounts.complete_password_reset(token, "new-pa55word-9876")
+      assert {:ok, _} = Accounts.authenticate("reset@example.com", "new-pa55word-9876")
+      assert {:error, :invalid_credentials} =
+               Accounts.authenticate("reset@example.com", AuthFixtures.default_password())
+
+      assert Accounts.list_sessions_for_user(user.id) == []
+    end
+  end
+end

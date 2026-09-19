@@ -1,0 +1,19 @@
+defmodule SpreadSheetAi.Organizations.OrganizationQueries do
+  @moduledoc "Composable queries for `SpreadSheetAi.Organizations.Organization`."
+
+  import Ecto.Query
+
+  alias SpreadSheetAi.Organizations.Organization
+
+  def by_id(query \\ Organization, id) do
+    where(query, [o], o.id == ^id)
+  end
+
+  def by_slug(query \\ Organization, slug) do
+    where(query, [o], o.slug == ^slug)
+  end
+
+  def active(query \\ Organization) do
+    where(query, [o], o.status == "active" and is_nil(o.deleted_at))
+  end
+end

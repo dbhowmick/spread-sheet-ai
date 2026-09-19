@@ -1,0 +1,62 @@
+defmodule <%= @base_string %>.Auth.Mailer.DeliverWorker do
+  @moduledoc """
+  Enqueues auth email delivery off the request path. Survives transient
+  SMTP failures via Oban's retry semantics.
+
+  Job args carry only entity IDs. The raw token is generated INSIDE the
+  worker via the appropriate context function and exists only for the
+  duration of `deliver/1`. This keeps tokens out of `oban_jobs.args`
+  (jsonb), which would otherwise expose them in DB backups, read
+  replicas, and DBA queries until the Oban Pruner runs.
+  """
+
+  use Oban.Worker, queue: :mailer, max_attempts: 5
+
+  alias <%= @base_string %>.Accounts
+  alias <%= @base_string %>.Accounts.User
+  alias <%= @base_string %>.Auth.Config
+  alias <%= @base_string %>.Auth.Mailer.AuthMailer
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"kind" => "verification", "user_id" => user_id}}) do
+    case Accounts.get_user(user_id) do
+      nil ->
+        {:cancel, :user_not_found}
+
+      %User{primary_email_verified: true} ->
+        {:cancel, :already_verified}
+
+      user ->
+        case Accounts.reissue_email_verification(user) do
+          {:ok, raw_token} ->
+            user
+            |> AuthMailer.verification_email(raw_token, Config.base_url())
+            |> <%= @mailer_string %>.deliver()
+
+          {:error, :already_verified} ->
+            {:cancel, :already_verified}
+
+          {:error, _} = err ->
+            err
+        end
+    end
+  end
+
+  def perform(%Oban.Job{args: %{"kind" => "password_reset", "user_id" => user_id}}) do
+    case Accounts.get_user(user_id) do
+      nil ->
+        {:cancel, :user_not_found}
+
+      user ->
+        case Accounts.issue_password_reset_for_user(user) do
+          {:ok, raw_token} ->
+            user
+            |> AuthMailer.password_reset_email(raw_token, Config.base_url())
+            |> <%= @mailer_string %>.deliver()
+
+          {:error, :no_password_credential} ->
+            {:cancel, :no_password_credential}
+        end
+    end
+  end
+end

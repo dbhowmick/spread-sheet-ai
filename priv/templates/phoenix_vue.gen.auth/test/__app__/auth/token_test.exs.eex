@@ -1,0 +1,26 @@
+defmodule <%= @base_string %>.Auth.TokenTest do
+  use ExUnit.Case, async: true
+
+  alias <%= @base_string %>.Auth.Token
+
+  test "generate/0 returns a fresh raw token and 32-byte SHA-256 hash" do
+    {raw1, hash1} = Token.generate()
+    {raw2, hash2} = Token.generate()
+
+    assert is_binary(raw1) and byte_size(raw1) > 0
+    assert byte_size(hash1) == 32
+    assert raw1 != raw2
+    assert hash1 != hash2
+  end
+
+  test "hash/1 is deterministic and matches generate's hash" do
+    {raw, expected_hash} = Token.generate()
+    assert Token.hash(raw) == expected_hash
+    assert Token.hash(raw) == Token.hash(raw)
+  end
+
+  test "hash/1 of a non-Base64url string still returns a 32-byte binary" do
+    hash = Token.hash("not-base64url!")
+    assert byte_size(hash) == 32
+  end
+end

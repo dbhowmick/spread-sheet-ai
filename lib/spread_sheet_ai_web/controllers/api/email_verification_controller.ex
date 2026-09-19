@@ -1,0 +1,37 @@
+defmodule SpreadSheetAiWeb.Api.EmailVerificationController do
+  use SpreadSheetAiWeb, :controller
+
+  alias SpreadSheetAi.Accounts
+  alias SpreadSheetAi.Auth.Mailer.DeliverWorker
+
+  action_fallback SpreadSheetAiWeb.Api.FallbackController
+
+  # POST /api/me/email-verification/confirm — consume a verification token.
+  def confirm(conn, %{"token" => token}) when is_binary(token) do
+    with {:ok, _user} <- Accounts.verify_email(token) do
+      send_resp(conn, :no_content, "")
+    end
+  end
+
+  def confirm(_conn, _params), do: {:error, :invalid_token}
+
+  # POST /api/me/email-verification/resend — enumeration-safe.
+  def resend(conn, %{"email" => email}) when is_binary(email) do
+    case Accounts.get_user_by_email(email) do
+      nil ->
+        send_resp(conn, :no_content, "")
+
+      %{primary_email_verified: true} ->
+        send_resp(conn, :no_content, "")
+
+      user ->
+        %{"kind" => "verification", "user_id" => user.id}
+        |> DeliverWorker.new()
+        |> Oban.insert()
+
+        send_resp(conn, :no_content, "")
+    end
+  end
+
+  def resend(conn, _), do: send_resp(conn, :no_content, "")
+end

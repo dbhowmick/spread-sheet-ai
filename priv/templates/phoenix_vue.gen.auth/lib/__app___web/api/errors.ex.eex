@@ -1,0 +1,185 @@
+defmodule <%= @web_string %>.Api.Errors do
+  @moduledoc """
+  Canonical error envelope builder. All `/api/*` error responses MUST go
+  through one of the three public functions here so the wire shape stays
+  consistent across controllers, plugs, and (later) channels.
+
+  Every function returns:
+
+      %{errors: [%{code: string, message: string, field: string | nil, meta: map}]}
+  """
+
+  @type entry :: %{
+          code: String.t(),
+          message: String.t(),
+          field: String.t() | nil,
+          meta: map()
+        }
+
+  @type envelope :: %{errors: [entry()]}
+
+  @spec from_code(String.t() | atom(), keyword()) :: envelope()
+  def from_code(code, opts \\ []) do
+    code_str = to_string(code)
+
+    entry = %{
+      code: code_str,
+      message: Keyword.get(opts, :message, default_message(code_str)),
+      field: Keyword.get(opts, :field, nil),
+      meta: Keyword.get(opts, :meta, %{})
+    }
+
+    %{errors: [entry]}
+  end
+
+  @spec from_changeset(Ecto.Changeset.t()) :: envelope()
+  def from_changeset(%Ecto.Changeset{} = changeset) do
+    constraint_map = schema_constraint_codes(changeset)
+
+    entries =
+      changeset
+      |> Ecto.Changeset.traverse_errors(fn {msg, opts} -> {msg, opts} end)
+      |> Enum.flat_map(fn {field, error_list} ->
+        Enum.map(error_list, fn {msg, opts} ->
+          code = derive_code(field, opts, constraint_map)
+          message = interpolate_message(msg, opts)
+
+          %{
+            code: code,
+            message: message,
+            field: to_string(field),
+            meta: constraint_meta(opts)
+          }
+        end)
+      end)
+
+    %{errors: entries}
+  end
+
+  @spec from_business(term()) :: envelope()
+  def from_business({:error, :rate_limited, retry_after}) do
+    from_code("rate_limited",
+      message: "Too many requests. Please try again.",
+      meta: %{retry_after_seconds: retry_after}
+    )
+  end
+
+  def from_business({:error, :locked, locked_until}) do
+    locked_until_str =
+      case locked_until do
+        %DateTime{} = dt -> DateTime.to_iso8601(dt)
+        str when is_binary(str) -> str
+        _ -> nil
+      end
+
+    from_code("account_locked",
+      message: "This account is temporarily locked.",
+      meta: %{locked_until: locked_until_str}
+    )
+  end
+
+  def from_business({:error, %Ecto.Changeset{} = cs}), do: from_changeset(cs)
+  def from_business({:error, reason}) when is_atom(reason), do: from_code(reason)
+  def from_business({:error, reason}) when is_binary(reason), do: from_code(reason)
+
+  # ---- private helpers ----
+
+  defp schema_constraint_codes(%Ecto.Changeset{data: %schema{}}) do
+    if function_exported?(schema, :api_error_codes, 0) do
+      schema.api_error_codes()
+    else
+      %{}
+    end
+  end
+
+  defp schema_constraint_codes(_), do: %{}
+
+  defp derive_code(field, opts, constraint_map) do
+    cond do
+      is_binary(opts[:code]) -> opts[:code]
+      opts[:validation] != nil -> derive_validation_code(field, opts)
+      opts[:constraint] != nil -> derive_constraint_code(opts, constraint_map)
+      true -> "invalid"
+    end
+  end
+
+  defp derive_validation_code(field, opts) do
+    case {opts[:validation], opts[:kind]} do
+      {:required, _} -> "required"
+      {:length, :min} -> "too_short"
+      {:length, :max} -> "too_long"
+      {:format, _} ->
+        if Atom.to_string(field) =~ "email", do: "invalid_email", else: "invalid_format"
+      {:inclusion, _} -> "invalid_value"
+      _ -> "invalid"
+    end
+  end
+
+  defp derive_constraint_code(opts, constraint_map) do
+    case opts[:constraint] do
+      :unique ->
+        name = to_string(opts[:constraint_name] || "")
+        Map.get(constraint_map, name, "already_taken")
+
+      :foreign ->
+        "not_found"
+
+      _ ->
+        "invalid"
+    end
+  end
+
+  defp interpolate_message(msg, opts) do
+    Enum.reduce(opts, msg, fn
+      {key, value}, acc when is_binary(acc) ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp constraint_meta(opts) do
+    cond do
+      opts[:constraint] == :unique ->
+        %{constraint: to_string(opts[:constraint_name] || "")}
+
+      opts[:validation] == :length ->
+        %{count: opts[:count]}
+
+      true ->
+        %{}
+    end
+  end
+
+  @messages %{
+    "invalid_credentials" => "Email or password is incorrect.",
+    "email_not_verified" => "Please verify your email address.",
+    "invalid_token" => "This link is invalid or has already been used.",
+    "expired" => "This link has expired. Please request a new one.",
+    "expired_token" => "This link has expired. Please request a new one.",
+    "already_in_organization" => "You are already part of this organization.",
+    "already_member_or_invited" => "This person is already a member or has a pending invitation.",
+    "forbidden" => "You do not have permission to perform this action.",
+    "not_found" => "Resource not found.",
+    "inactive_membership" => "This membership is not active.",
+    "invalid_current_password" => "Current password is incorrect.",
+    "no_password_credential" => "This account does not have a password set.",
+    "unauthenticated" => "Authentication is required.",
+    "no_organization_context" => "No active organization context.",
+    "rate_limited" => "Too many requests. Please try again.",
+    "account_locked" => "This account is temporarily locked.",
+    "required" => "This field is required.",
+    "too_short" => "This value is too short.",
+    "too_long" => "This value is too long.",
+    "invalid_format" => "This value is not in the expected format.",
+    "invalid_email" => "This email address is not valid.",
+    "invalid_value" => "This value is not allowed.",
+    "already_taken" => "This value is already taken.",
+    "weak_password" => "This password is too common. Please choose a stronger one.",
+    "invalid_csrf_token" => "Your session expired. Please reload the page.",
+    "slug_taken" => "This organization name is already in use."
+  }
+
+  defp default_message(code), do: Map.get(@messages, code, "An error occurred.")
+end

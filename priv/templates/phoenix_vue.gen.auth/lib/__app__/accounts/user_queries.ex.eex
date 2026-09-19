@@ -1,0 +1,37 @@
+defmodule <%= @base_string %>.Accounts.UserQueries do
+  @moduledoc """
+  Composable queries for `<%= @base_string %>.Accounts.User`.
+
+  Query functions return `Ecto.Query` and never call `Repo`; the
+  `<%= @base_string %>.Accounts` context is the only place that executes them.
+  """
+
+  import Ecto.Query
+
+  alias <%= @base_string %>.Accounts.User
+
+  def by_id(query \\ User, id) do
+    where(query, [u], u.id == ^id)
+  end
+
+  def by_email(query \\ User, email) do
+    normalized = email |> to_string() |> String.downcase()
+    where(query, [u], fragment("lower(?::text)", u.primary_email) == ^normalized)
+  end
+
+  def active(query \\ User) do
+    where(query, [u], u.status == "active")
+  end
+
+  def with_password_credential(query \\ User) do
+    preload(query, :password_credential)
+  end
+
+  def with_members(query \\ User) do
+    preload(query, members: [:organization])
+  end
+
+  def by_verification_token_hash(query \\ User, hash) do
+    where(query, [u], u.email_verification_token_hash == ^hash)
+  end
+end

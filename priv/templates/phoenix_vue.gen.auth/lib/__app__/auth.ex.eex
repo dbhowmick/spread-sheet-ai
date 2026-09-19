@@ -1,0 +1,19 @@
+defmodule <%= @base_string %>.Auth do
+  @moduledoc """
+  Authentication primitives: opaque session tokens, password hashing, the
+  session sweeper Oban worker, and Swoosh email assembly + delivery.
+
+  This module is intentionally thin — it holds no business logic. Real
+  identity work lives in `<%= @base_string %>.Accounts`; tenancy work in
+  `<%= @base_string %>.Organizations`. Two cookies carry auth state in this
+  app:
+
+    * **Auth session cookie** — opaque random 32-byte token managed directly
+      via `Plug.Conn.put_resp_cookie/4`. Hashed (SHA-256) at rest in the
+      `sessions` table. HttpOnly, Secure in prod, SameSite=Lax.
+    * **`Plug.Session` cookie** — used *only* as the CSRF token carrier. No
+      application data lives in its payload. The SPA reads the token from
+      `<meta name="csrf-token">` and sends it as `X-CSRF-Token` on every
+      mutating XHR.
+  """
+end

@@ -1,0 +1,104 @@
+defmodule <%= @web_string %>.Api.FallbackController do
+  @moduledoc """
+  Centralized error handler for `/api/*` controllers. Maps `{:error, _}`
+  tuples returned from contexts to canonical JSON envelope responses via
+  `<%= @web_string %>.Api.Errors`.
+
+  Every error response is logged in `respond/3` at a level keyed on the
+  HTTP status (4xx → warning, 5xx → error).
+  """
+
+  use <%= @web_string %>, :controller
+
+  require Logger
+
+  alias <%= @web_string %>.Api.Errors
+
+  def call(conn, {:error, :invalid_credentials}) do
+    respond(conn, :unauthorized, Errors.from_code("invalid_credentials"))
+  end
+
+  def call(conn, {:error, :locked, locked_until}) do
+    respond(conn, 423, Errors.from_business({:error, :locked, locked_until}))
+  end
+
+  def call(conn, {:error, :email_not_verified}) do
+    respond(conn, :forbidden, Errors.from_code("email_not_verified"))
+  end
+
+  def call(conn, {:error, :email_not_verified, _user}) do
+    respond(conn, :forbidden, Errors.from_code("email_not_verified"))
+  end
+
+  def call(conn, {:error, :invalid_token}) do
+    respond(conn, :unprocessable_entity, Errors.from_code("invalid_token"))
+  end
+
+  def call(conn, {:error, :expired}) do
+    respond(conn, :unprocessable_entity, Errors.from_code("expired_token"))
+  end
+
+  def call(conn, {:error, :forbidden}) do
+    respond(conn, :forbidden, Errors.from_code("forbidden"))
+  end
+
+  def call(conn, {:error, :not_found}) do
+    respond(conn, :not_found, Errors.from_code("not_found"))
+  end
+
+  def call(conn, {:error, :inactive_membership}) do
+    respond(conn, :unprocessable_entity,
+      Errors.from_code("inactive_membership", field: "organization_id")
+    )
+  end
+
+  def call(conn, {:error, :invalid_current_password}) do
+    respond(conn, :unprocessable_entity,
+      Errors.from_code("invalid_current_password", field: "current_password")
+    )
+  end
+
+  def call(conn, {:error, :no_password_credential}) do
+    respond(conn, :unprocessable_entity, Errors.from_code("no_password_credential"))
+  end
+
+  def call(conn, {:error, :invalid_email}) do
+    respond(conn, :unprocessable_entity, Errors.from_code("invalid_email", field: "email"))
+  end
+
+  def call(conn, {:error, :unauthenticated}) do
+    respond(conn, :unauthorized, Errors.from_code("unauthenticated"))
+  end
+
+  def call(conn, {:error, %Ecto.Changeset{} = changeset}) do
+    respond(conn, :unprocessable_entity, Errors.from_changeset(changeset))
+  end
+
+  def call(conn, {:error, reason}) when is_atom(reason) do
+    respond(conn, :unprocessable_entity, Errors.from_code(reason))
+  end
+
+  defp respond(conn, status, envelope) do
+    log_error(conn, status, envelope)
+
+    conn
+    |> put_status(status)
+    |> json(envelope)
+  end
+
+  defp log_error(conn, status, envelope) do
+    http_status = Plug.Conn.Status.code(status)
+    code = first_error_code(envelope)
+    level = if http_status >= 500, do: :error, else: :warning
+
+    Logger.log(level, "api.error",
+      code: code,
+      status: http_status,
+      method: conn.method,
+      path: conn.request_path
+    )
+  end
+
+  defp first_error_code(%{errors: [%{code: code} | _]}), do: code
+  defp first_error_code(_), do: "unknown"
+end

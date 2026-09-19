@@ -1,0 +1,99 @@
+defmodule <%= @base_string %>.Accounts.User do
+  @moduledoc """
+  The underlying authenticated human. One per real person, regardless of how
+  many Organizations they belong to.
+
+  This schema lives ABOVE the tenant boundary — it has no `organization_id`
+  and is never scoped to a tenant. Tenant association flows through `Member`.
+  """
+
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  alias <%= @base_string %>.Accounts.{PasswordCredential, Session}
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+  @timestamps_opts [type: :utc_datetime]
+
+  @statuses ~w(active suspended deleted)
+
+  @type t :: %__MODULE__{}
+
+  schema "users" do
+    field :primary_email, :string
+    field :primary_email_verified, :boolean, default: false
+    field :display_name, :string
+    field :avatar_url, :string
+    field :status, :string, default: "active"
+
+    field :email_verification_token_hash, :binary
+    field :email_verification_expires_at, :utc_datetime
+
+    field :last_login_at, :utc_datetime
+
+    field :locale, :string, default: "en"
+
+    has_one :password_credential, PasswordCredential
+    has_many :sessions, Session
+    has_many :members, <%= @base_string %>.Organizations.Member
+
+    timestamps()
+  end
+
+  @doc "Changeset for arbitrary profile updates (display_name, avatar_url)."
+  def changeset(user, attrs) do
+    user
+    |> cast(attrs, [:display_name, :avatar_url, :status, :primary_email_verified])
+    |> validate_inclusion(:status, @statuses)
+    |> validate_length(:display_name, max: 120)
+  end
+
+  @doc """
+  Registration changeset: validates email format and uniqueness markers, and
+  sets `primary_email_verified: false`. Caller is responsible for hashing and
+  storing the email-verification token.
+  """
+  def registration_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:primary_email, :display_name, :locale])
+    |> validate_required([:primary_email])
+    |> validate_length(:locale, max: 16)
+    |> validate_length(:primary_email, max: 254)
+    |> validate_format(:primary_email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "is invalid")
+    |> update_change(:primary_email, &String.downcase/1)
+    |> unique_constraint(:primary_email)
+    |> put_change(:primary_email_verified, false)
+  end
+
+  @doc "Sets the email-verification token hash and expiry."
+  def put_email_verification_token(user, hash, expires_at) do
+    change(user, %{
+      email_verification_token_hash: hash,
+      email_verification_expires_at: expires_at
+    })
+  end
+
+  @doc "Clears the email-verification token and flips the verified flag."
+  def confirm_email_changeset(user) do
+    change(user, %{
+      primary_email_verified: true,
+      email_verification_token_hash: nil,
+      email_verification_expires_at: nil
+    })
+  end
+
+  @doc false
+  def statuses, do: @statuses
+
+  @doc """
+  Maps Postgres constraint names to stable API error codes. Used by the
+  fallback controller to translate `Ecto.Changeset` failures into the JSON
+  error envelope without leaking schema-internal language.
+  """
+  def api_error_codes do
+    %{
+      "users_primary_email_index" => "already_taken"
+    }
+  end
+end

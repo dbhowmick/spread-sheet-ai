@@ -1,0 +1,61 @@
+defmodule <%= @repo_string %>.Migrations.CreateMembers do
+  use Ecto.Migration
+
+  def change do
+    create table(:members, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+
+      add :organization_id,
+          references(:organizations, type: :binary_id, on_delete: :delete_all),
+          null: false
+
+      add :user_id,
+          references(:users, type: :binary_id, on_delete: :nilify_all),
+          null: true
+
+      add :email, :string, null: false
+      add :display_name, :string
+      add :role, :string, null: false
+      add :status, :string, null: false
+      add :invite_token_hash, :binary
+      add :invite_expires_at, :utc_datetime
+
+      add :invited_by_member_id,
+          references(:members, type: :binary_id, on_delete: :nilify_all),
+          null: true
+
+      add :joined_at, :utc_datetime
+      add :last_active_at, :utc_datetime
+
+      timestamps(type: :utc_datetime)
+    end
+
+    # Partial unique: a User can be a Member of an Organization at most once
+    # (NULL user_id rows — invited Members not yet claimed — are excluded).
+    create unique_index(:members, [:user_id, :organization_id],
+             where: "user_id IS NOT NULL",
+             name: :members_user_id_organization_id_index
+           )
+
+    # Partial unique: at most one outstanding invite per email per Organization.
+    create unique_index(:members, [:email, :organization_id],
+             where: "status = 'invited'",
+             name: :members_pending_invite_email_organization_id_index
+           )
+
+    create index(:members, [:organization_id])
+    create index(:members, [:user_id])
+
+    create index(:members, [:invite_token_hash],
+             where: "invite_token_hash IS NOT NULL",
+             name: :members_invite_token_hash_index
+           )<%= if @mode == :single do %>
+
+    # --mode single: a User is allowed in at most one active Organization at
+    # a time. Drop this index to migrate the same app to --mode multi later.
+    create unique_index(:members, [:user_id],
+             where: "user_id IS NOT NULL AND status = 'active'",
+             name: :members_single_tenant_user_id_index
+           )<% end %>
+  end
+end

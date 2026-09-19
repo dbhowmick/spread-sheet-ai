@@ -1,0 +1,178 @@
+defmodule <%= @base_string %>.Organizations do
+  @moduledoc """
+  The tenant context: `Organization` and `Member`. Every function here
+  operates within the tenant boundary. Authentication identity (User,
+  Session) lives in `<%= @base_string %>.Accounts`.
+  """
+
+  require Logger
+
+  import Ecto.Query
+
+  alias <%= @base_string %>.Accounts.{Session, User}
+
+  alias <%= @base_string %>.Organizations.{
+    Member,
+    MemberQueries,
+    Organization,
+    OrganizationQueries,
+    SlugGenerator
+  }
+
+  alias <%= @repo_string %>
+
+  # ----- Organizations -----
+
+  def get_organization(id), do: Repo.get(Organization, id)
+
+  def get_organization_by_slug(slug) do
+    Organization |> OrganizationQueries.by_slug(slug) |> Repo.one()
+  end
+
+  @doc """
+  Creates a new Organization for the given User, making them the owner.
+  Atomic — Organization + owner Member + session's `current_member_id`
+  update happen in a single transaction. Auto-resolves slug collisions
+  with `-2`, `-3`, ... suffixes.
+  """
+  def create_organization_for_user(%User{} = user, %Session{} = session, %{name: name} = attrs) do
+    do_create_organization(user, session, name, Map.get(attrs, :display_name))
+  end
+
+  def create_organization_for_user(user, session, %{"name" => _} = attrs) do
+    create_organization_for_user(user, session, %{
+      name: attrs["name"],
+      display_name: attrs["display_name"]
+    })
+  end
+
+  defp do_create_organization(user, session, name, display_name) do
+    base = SlugGenerator.base_slug(name)
+    slug = resolve_unique_slug(base, 1)
+
+    member_email = user.primary_email
+    member_display_name = display_name || user.display_name
+
+    Ecto.Multi.new()
+    |> Ecto.Multi.insert(
+      :organization,
+      Organization.changeset(%Organization{}, %{name: name, slug: slug})
+    )
+    |> Ecto.Multi.insert(:member, fn %{organization: org} ->
+      Member.owner_changeset(%Member{}, %{
+        organization_id: org.id,
+        user_id: user.id,
+        email: member_email,
+        display_name: member_display_name
+      })
+    end)
+    |> Ecto.Multi.update(:session, fn %{member: member} ->
+      Session.update_member_changeset(session, member.id)
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{organization: org, member: member, session: session}} ->
+        {:ok, %{organization: org, member: member, session: session}}
+
+      {:error, step, changeset, _} ->
+        Logger.error("organization.create_failed", user_id: user.id, step: step)
+        {:error, changeset}
+    end
+  end
+
+  defp resolve_unique_slug(base, attempt) do
+    candidate = if attempt == 1, do: base, else: SlugGenerator.with_suffix(base, attempt)
+
+    case get_organization_by_slug(candidate) do
+      nil -> candidate
+      %Organization{} -> resolve_unique_slug(base, attempt + 1)
+    end
+  end
+
+  # ----- Members -----
+
+  def get_member(id), do: Repo.get(Member, id)
+
+  def get_member_with_organization(id) do
+    Member
+    |> MemberQueries.by_id(id)
+    |> MemberQueries.with_organization()
+    |> Repo.one()
+  end
+
+  def list_active_members(organization_id) when is_binary(organization_id) do
+    organization_id
+    |> MemberQueries.active_for_organization()
+    |> Repo.all()
+  end
+
+  @doc """
+  Lists a user's active memberships, ordered `last_active_at desc nulls
+  last` so the head of the list is the user's most-recently-selected
+  organization. `Accounts.create_session_for_authenticated_user/3` relies
+  on this ordering to default a returning user to their last org.
+  """
+  def list_memberships_for_user(user_id) do
+    Member
+    |> MemberQueries.for_user(user_id)
+    |> where([m], m.status == "active")
+    |> order_by([m], desc_nulls_last: m.last_active_at, asc: m.inserted_at)
+    |> preload(:organization)
+    |> Repo.all()
+  end
+
+  def get_member_for_user_and_organization(user_id, organization_id) do
+    Member
+    |> MemberQueries.for_user_and_organization(user_id, organization_id)
+    |> Repo.one()
+  end
+
+  def count_members_for_user(user_id) do
+    Member
+    |> MemberQueries.for_user(user_id)
+    |> where([m], not is_nil(m.user_id))
+    |> select([m], count(m.id))
+    |> Repo.one()
+  end
+
+  @doc """
+  Records that the given Member is now the user's current selection. Bumps
+  `last_active_at`. Called from org-selection paths only (initial
+  creation, explicit switch), not on every authenticated request.
+  """
+  def touch_member_active(%Member{} = member) do
+    member
+    |> Ecto.Changeset.change(%{
+      last_active_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    })
+    |> Repo.update()
+  end
+
+  @doc """
+  Verifies `member_id` resolves to an active Member owned by `user`.
+  Returns `{:ok, member}` with `:organization` preloaded, or
+  `{:error, :not_found | :forbidden | :inactive_membership}`. Verify-only —
+  the caller follows up with `Accounts.update_session_member!/2`.
+  """
+  def verify_member_for_user(%User{} = user, member_id) do
+    case Repo.get(Member, member_id) do
+      nil -> {:error, :not_found}
+      %Member{user_id: u_id} when u_id != user.id -> {:error, :forbidden}
+      %Member{status: status} when status != "active" -> {:error, :inactive_membership}
+      %Member{} = member -> {:ok, Repo.preload(member, :organization)}
+    end
+  end
+
+  @doc """
+  Looks up the User's active Member in a given Organization. Used by the
+  switch-organization controller, which knows the target org_id (not the
+  member_id).
+  """
+  def verify_member_by_organization(%User{} = user, organization_id) do
+    case get_member_for_user_and_organization(user.id, organization_id) do
+      nil -> {:error, :not_found}
+      %Member{status: status} when status != "active" -> {:error, :inactive_membership}
+      %Member{} = member -> {:ok, Repo.preload(member, :organization)}
+    end
+  end
+end

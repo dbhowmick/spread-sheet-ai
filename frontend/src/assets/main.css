@@ -1,0 +1,19 @@
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/bricolage-grotesque';
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@meldui/vue/themes/default';
+
+/* Tailwind v4 source scanning — needed so utility classes used inside the
+   meldui component library (under node_modules/@meldui/vue/dist) are
+   discovered alongside our own source files. */
+@source "../**/*.{vue,ts,tsx,js,jsx}";
+@source "../../node_modules/@meldui/vue/dist/**/*.mjs";
+
+@theme inline {
+  --font-sans:
+    'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-display:
+    'Bricolage Grotesque Variable', 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+}

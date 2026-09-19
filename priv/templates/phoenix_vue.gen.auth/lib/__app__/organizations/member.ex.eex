@@ -1,0 +1,147 @@
+defmodule <%= @base_string %>.Organizations.Member do
+  @moduledoc """
+  Join entity between a `User` and an `Organization`. A `User` has at most
+  one Member per Organization; an Organization has many Members.
+
+  An invited-but-not-claimed Member has `status: "invited"`, a non-null
+  `invite_token_hash`, and a `NULL` `user_id`. After invite claim, the
+  `user_id` is set, `status` becomes `"active"`, and the invite columns are
+  cleared. The invite columns ship even though `mix phoenix_vue.gen.auth`
+  does not wire up an invite UI by default — they let you add invites later
+  without a migration.
+  """
+
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @type t :: %__MODULE__{}
+
+  alias <%= @base_string %>.Accounts.User
+  alias <%= @base_string %>.Organizations.Organization
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+  @timestamps_opts [type: :utc_datetime]
+
+  @roles ~w(owner admin member guest)
+  @invitable_roles ~w(admin member guest)
+  @statuses ~w(active invited suspended)
+
+  schema "members" do
+    belongs_to :organization, Organization
+    belongs_to :user, User
+    belongs_to :invited_by_member, __MODULE__, foreign_key: :invited_by_member_id
+
+    field :email, :string
+    field :display_name, :string
+    field :role, :string
+    field :status, :string
+
+    field :invite_token_hash, :binary
+    field :invite_expires_at, :utc_datetime
+    field :joined_at, :utc_datetime
+    field :last_active_at, :utc_datetime
+
+    timestamps()
+  end
+
+  @doc "Changeset for the owner Member created during onboarding."
+  def owner_changeset(member, attrs) do
+    member
+    |> cast(attrs, [:organization_id, :user_id, :email, :display_name])
+    |> validate_required([:organization_id, :user_id, :email])
+    |> put_change(:role, "owner")
+    |> put_change(:status, "active")
+    |> put_change(:joined_at, now())
+    |> put_change(:last_active_at, now())
+    |> unique_constraint([:user_id, :organization_id],
+      name: :members_user_id_organization_id_index
+    )
+  end
+
+  @doc "Changeset for an invited (not-yet-claimed) Member."
+  def invitation_changeset(member, attrs) do
+    member
+    |> cast(attrs, [
+      :organization_id,
+      :email,
+      :role,
+      :invited_by_member_id,
+      :invite_token_hash,
+      :invite_expires_at,
+      :display_name
+    ])
+    |> validate_required([
+      :organization_id,
+      :email,
+      :role,
+      :invite_token_hash,
+      :invite_expires_at
+    ])
+    |> validate_inclusion(:role, @invitable_roles, message: "is not invitable")
+    |> put_change(:status, "invited")
+    |> put_change(:user_id, nil)
+    |> unique_constraint([:email, :organization_id],
+      name: :members_pending_invite_email_organization_id_index
+    )
+  end
+
+  @doc "Changeset that converts an invited Member to active."
+  def claim_changeset(member, user_id) do
+    member
+    |> change(%{
+      user_id: user_id,
+      status: "active",
+      joined_at: now(),
+      last_active_at: now(),
+      invite_token_hash: nil,
+      invite_expires_at: nil
+    })
+    |> unique_constraint([:user_id, :organization_id],
+      name: :members_user_id_organization_id_index
+    )
+  end
+
+  @doc "Changeset for role updates (rejects `\"owner\"` as a setter; use a dedicated transfer flow)."
+  def role_changeset(member, attrs) do
+    member
+    |> cast(attrs, [:role])
+    |> validate_required([:role])
+    |> validate_inclusion(:role, @roles)
+  end
+
+  @doc "Changeset for status updates (suspend/reinstate)."
+  def status_changeset(member, attrs) do
+    member
+    |> cast(attrs, [:status])
+    |> validate_required([:status])
+    |> validate_inclusion(:status, @statuses)
+  end
+
+  @doc "Maps Postgres constraint names to stable API error codes."
+  def api_error_codes do
+    %{
+      "members_user_id_organization_id_index" => "already_in_organization",
+      "members_pending_invite_email_organization_id_index" => "already_member_or_invited"
+    }
+  end
+
+  @doc """
+  The member's human-facing label: display name when set, else email.
+  """
+  def display_label(%__MODULE__{display_name: name}) when is_binary(name) and name != "",
+    do: name
+
+  def display_label(%__MODULE__{email: email}), do: email
+
+  @doc false
+  def roles, do: @roles
+
+  @doc false
+  def invitable_roles, do: @invitable_roles
+
+  @doc false
+  def statuses, do: @statuses
+
+  defp now, do: DateTime.utc_now() |> DateTime.truncate(:second)
+end

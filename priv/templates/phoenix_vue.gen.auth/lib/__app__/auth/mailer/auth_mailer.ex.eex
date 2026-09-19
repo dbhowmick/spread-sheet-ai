@@ -1,0 +1,70 @@
+defmodule <%= @base_string %>.Auth.Mailer.AuthMailer do
+  @moduledoc """
+  Builds Swoosh emails for the auth flows. Delivery happens through
+  `<%= @base_string %>.Auth.Mailer.DeliverWorker` (Oban job), not inline.
+
+  All user-controlled values that flow into HTML bodies MUST be passed
+  through `h/1` so a malicious value renders as text rather than markup
+  in the recipient's mail client.
+  """
+
+  import Swoosh.Email
+
+  alias <%= @base_string %>.Accounts.User
+  alias <%= @base_string %>.Auth.Config
+
+  def verification_email(%User{} = user, raw_token, base_url) do
+    link = "#{base_url}/auth/verify-email/#{raw_token}"
+    safe_link = h(link)
+
+    new()
+    |> to({user.display_name || user.primary_email, user.primary_email})
+    |> from(Config.mail_from())
+    |> subject("Verify your email")
+    |> text_body("""
+    Welcome!
+
+    Please verify your email by visiting:
+
+    #{link}
+
+    The link expires in 24 hours. If you didn't sign up, you can safely
+    ignore this email.
+    """)
+    |> html_body("""
+    <p>Welcome!</p>
+    <p>Please verify your email by visiting <a href="#{safe_link}">#{safe_link}</a>.</p>
+    <p>The link expires in 24 hours. If you didn't sign up, you can safely ignore this email.</p>
+    """)
+  end
+
+  def password_reset_email(%User{} = user, raw_token, base_url) do
+    link = "#{base_url}/auth/reset-password/#{raw_token}"
+    safe_link = h(link)
+
+    new()
+    |> to({user.display_name || user.primary_email, user.primary_email})
+    |> from(Config.mail_from())
+    |> subject("Reset your password")
+    |> text_body("""
+    Someone (hopefully you) requested a password reset for your account.
+    Visit:
+
+    #{link}
+
+    The link expires in 1 hour. If you didn't request this, your password
+    remains unchanged.
+    """)
+    |> html_body("""
+    <p>Someone (hopefully you) requested a password reset for your account.</p>
+    <p>Visit <a href="#{safe_link}">#{safe_link}</a> to set a new password.</p>
+    <p>The link expires in 1 hour. If you didn't request this, your password remains unchanged.</p>
+    """)
+  end
+
+  defp h(value) do
+    value
+    |> Phoenix.HTML.html_escape()
+    |> Phoenix.HTML.safe_to_string()
+  end
+end

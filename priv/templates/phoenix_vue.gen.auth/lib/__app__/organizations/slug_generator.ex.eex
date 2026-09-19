@@ -1,0 +1,31 @@
+defmodule <%= @base_string %>.Organizations.SlugGenerator do
+  @moduledoc """
+  Pure functions for slug derivation. Disambiguation via `Repo` lookup lives
+  in `<%= @base_string %>.Organizations.create_organization_for_user/2`.
+  """
+
+  @doc """
+  Derives a base slug from an organization name. Lowercase ASCII, words
+  joined by hyphens. Strips diacritics and punctuation. Truncates to 50
+  chars so suffix room is preserved.
+  """
+  def base_slug(name) when is_binary(name) do
+    name
+    |> String.normalize(:nfd)
+    |> String.replace(~r/[^A-Za-z0-9\s-]/u, "")
+    |> String.downcase()
+    |> String.replace(~r/[\s_]+/, "-")
+    |> String.replace(~r/-+/, "-")
+    |> String.trim("-")
+    |> String.slice(0, 50)
+    |> ensure_min_length()
+  end
+
+  @doc "Appends `-N` to a base slug. `-2` is the first suffix."
+  def with_suffix(base, n) when is_binary(base) and is_integer(n) and n >= 2 do
+    "#{base}-#{n}"
+  end
+
+  defp ensure_min_length(slug) when byte_size(slug) >= 2, do: slug
+  defp ensure_min_length(_), do: "workspace"
+end

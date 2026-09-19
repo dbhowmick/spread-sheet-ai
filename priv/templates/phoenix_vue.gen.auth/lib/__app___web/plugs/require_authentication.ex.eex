@@ -1,0 +1,23 @@
+defmodule <%= @web_string %>.Plugs.RequireAuthentication do
+  @moduledoc """
+  Halts with `401` + canonical error envelope when `assigns.current_user`
+  is nil. Assumes `FetchUserSession` ran earlier.
+  """
+
+  @behaviour Plug
+
+  import Plug.Conn
+  import Phoenix.Controller, only: [json: 2]
+
+  alias <%= @web_string %>.Api.Errors
+
+  @impl Plug
+  def init(opts), do: opts
+
+  @impl Plug
+  def call(%Plug.Conn{assigns: %{current_user: nil}} = conn, _opts) do
+    conn |> put_status(:unauthorized) |> json(Errors.from_code("unauthenticated")) |> halt()
+  end
+
+  def call(conn, _opts), do: conn
+end
