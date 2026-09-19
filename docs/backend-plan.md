@@ -438,8 +438,9 @@ separate commit, so the diff can be reviewed:
    unfiltered, and drop the owner filter from `search_messages`. Keep
    `user_id` as the creator, exposed as `created_by`.
 3. **Sender metadata (CS-3).** `DisplayMessagePersistence.save_message`
-   ignores `message.metadata`. Copy `"sender_user_id"` into the row's
-   `metadata`.
+   ignores `message.metadata`. Copy `"sender_user_id"` and
+   `"sender_display_name"` into the row's `metadata` (the name since
+   Phase 7, §7.3).
 4. **Title writer (CS-8).** In `AgentPersistence.persist_state`, when
    `context.lifecycle == :on_title_generated`, write the title to
    `conversations.title` (`Conversations.put_title/3`). The title is in
@@ -477,9 +478,11 @@ separate commit, so the diff can be reviewed:
 ### 7.3 `ConversationChannel`, `"conversation:<id>"`
 
 The channel process is a Sagents subscriber. Sagents delivers agent events
-with `send/2` to each subscribed process, **not** over PubSub.
-`AgentSubscriberSession` (generated) is the pure state helper for this and
-is reused as is.
+with `send/2` to each subscribed process, **not** over PubSub. The channel
+keeps its subscription map in its assigns and calls `Sagents.Subscriber`
+directly (`subscribe_to_agent`, `handle_publisher_down`,
+`handle_presence_diff`). The generated `AgentSubscriberSession` holds
+LiveView-shaped state the channel doesn't need, so it isn't used here.
 
 **join:**
 1. Load the conversation. A missing or malformed id replies `not_found`.
@@ -723,7 +726,7 @@ backend.
 | **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ✅ 2026-09-20 |
 | **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ✅ 2026-09-20 |
 | **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ✅ 2026-09-20 |
-| **7. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Scripted-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** | ⬜ |
+| **7. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Scripted-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** | ✅ 2026-09-20 |
 | **8. AI tools** → **M3** | SheetTools middleware, 16 tools, system prompt, linking and focus events, choosing the default model (§7.4) | Tool unit tests against a real sheet. A scripted-model test where a tool call changes a sheet: `op_applied` reaches a sheet subscriber, and `focus_sheet` plus `sheets` reach conversation subscribers (AI-1…AI-7, ST-1…ST-3). The default model is recorded in config | ⬜ |
 | **9. Hardening** | A manual end-to-end run with a real model and two browsers, a log review, docs | The four questions in the requirements §1 are answered, and the findings are noted in `docs/` | ⬜ |
 
@@ -776,7 +779,10 @@ phase 4.
 - **Tools:** each tool function is called directly with a context map,
   with no agent involved.
 - **Manual only:** real OpenRouter calls happen only in the manual runs of
-  Phases 6, 8 and 9, never in `mix test`.
+  Phases 6 to 9, never in `mix test`. Phase 7's run used curl for the REST
+  endpoints and a small Node `WebSocket` script to join
+  `conversation:<id>` and send a message (the socket token goes in the
+  `base64url.bearer.phx.<base64 token>` subprotocol).
 
 ## 12. Risks and open points
 
