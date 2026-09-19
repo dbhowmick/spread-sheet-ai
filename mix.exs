@@ -64,6 +64,11 @@ defmodule SpreadSheetAi.MixProject do
       {:dns_cluster, "~> 0.3.0"},
       {:bandit, "~> 1.12"},
       {:oban, "~> 2.24"},
+      # AI copilot (docs/backend-plan.md §7). Sagents is 0.x: re-check the plan
+      # against its CHANGELOG before upgrading.
+      {:sagents, "~> 0.15.1"},
+      {:langchain, "~> 0.14.1"},
+      {:req_llm, "~> 1.24"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ] ++ auth_deps()

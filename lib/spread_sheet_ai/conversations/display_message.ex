@@ -1,0 +1,294 @@
+defmodule SpreadSheetAi.Conversations.DisplayMessage do
+  @moduledoc """
+  Schema for display messages with multi-content type support.
+
+  Stores user-facing messages for display in the UI.
+  These are separate from the full agent state for efficient querying.
+
+  ## Content Types
+
+  The `content_type` field determines how the message content should be rendered:
+
+  - `"text"` - Standard text content (default)
+  - `"thinking"` - AI reasoning/thought process
+  - `"image"` - Image content (URL or base64 data)
+  - `"file_reference"` - Reference to a file
+  - `"structured_data"` - Structured/formatted data (tables, JSON, etc.)
+  - `"notification"` - System/UI notification. Sagents writes one when a run is
+    cancelled, carrying `content["stop_reason"] = "cancelled"`
+  - `"error"` - Error message. Sagents writes one when a turn fails, carrying
+    `content["error_type"]` when the failure named one
+  - `"tool_call"` - Tool invocation request from assistant
+  - `"tool_result"` - Tool execution result
+  - `"todo_snapshot"` - Point-in-time snapshot of an agent's todo list,
+    emitted by `Sagents.Middleware.TodoList` when configured with
+    `inline: true`
+
+  ## Content Structure
+
+  The `content` field is a map (JSONB) with structure depending on `content_type`.
+  **IMPORTANT**: All content keys are strings (not atoms) because of JSONB storage.
+
+  Examples:
+  - Text: `%{"text" => "message"}`
+  - Image: `%{"url" => "path"}` or `%{"data" => "base64...", "mime_type" => "image/png"}`
+  - File: `%{"path" => "/path", "name" => "report.pdf"}`
+  - Tool call: `%{"call_id" => "call_123", "name" => "search", "arguments" => %{...}}`
+  - Tool result: `%{"tool_call_id" => "call_123", "name" => "search", "content" => "...", "is_error" => false}`
+  - Todo snapshot: `%{"todos" => [%{"id" => 1, "content" => "Plan", "status" => "completed"}, ...], "summary" => %{"total" => 3, "pending" => 1, "in_progress" => 1, "completed" => 1, "cancelled" => 0}}`
+
+  ## Content Keys Written By The Framework
+
+  Beyond the per-type keys above, `Sagents.Message.DisplayHelpers` may add:
+
+  - `"stop_reason"` - present only when the model did not finish the message.
+    One of `"length"` (output token cap reached), `"cancelled"` (the run was
+    stopped), `"content_filtered"` (the provider's filter or safety classifier
+    stopped the response), or `"stream_error"` (the stream died mid-flight). It
+    appears on the **last** item a message produced, because it means "and then
+    it stopped". A finished message carries no such key, so render the mark on
+    the presence of `content["stop_reason"]`.
+  - `"stop_details"` - the provider's own description of the cause, present only
+    alongside `"stop_reason"` and only when the provider named one. Anthropic
+    sends it on a refusal as
+    `%{"type" => "refusal", "category" => ..., "explanation" => ...}`. Treat it
+    as optional: most stops carry a reason and no detail.
+  - `"display_text"` - on `"tool_call"` content, a human-readable label for the
+    tool, taken from the `LangChain.Function` or humanized from its name.
+  - `"error_type"` - on `"error"` content, the `LangChain.LangChainError` type
+    behind the failure, such as `"overloaded"` or `"exceeded_max_runs"`. Absent
+    when the failure named no type. Note that `"error"` rows carry no
+    `"stop_reason"`: that key describes a message the model began and did not
+    finish, which is a different thing from a turn that failed.
+
+  Rows the framework originates rather than the model — `"notification"` and
+  `"error"` — reach `save_synthetic_message/3` rather than `save_message/3`, and
+  are broadcast as `{:display_message_saved, _}` only. A host that does not
+  implement `save_synthetic_message/3` receives them as ordinary assistant text
+  instead, and cannot style or translate them.
+
+  ## Metadata Keys
+
+  The `metadata` field is a free-form map with several writers. Keys in use:
+
+  - `"result"` - tool output, written when a tool call completes
+  - `"display_text"` - tool label, written on completion and on interrupt
+  - `"error"` - failure description, written when a tool call fails
+  - `"hitl_decision"` - what a human approved or rejected, for tool calls that
+    went through `Sagents.Middleware.HumanInTheLoop`
+
+  Status transitions merge rather than replace, so a key set early survives
+  later transitions.
+
+  ## Sequence Field (Message-Local Ordering)
+
+  The `sequence` field (integer, default 0) ensures correct ordering of multiple content parts
+  within a single message. It is **message-local**, not conversation-wide.
+
+  ### When to Use Sequence:
+
+  - **Single-part messages**: Always use `sequence: 0` (default)
+    - User messages
+    - Simple assistant text responses
+    - Individual tool results
+
+  - **Multi-part messages**: Use `sequence: 0, 1, 2, ...` for each part
+    - Assistant thinking (sequence: 0) + text response (sequence: 1)
+    - Text (sequence: 0) + image (sequence: 1)
+    - Multiple tool calls arriving together
+
+  ### Example:
+
+      # Single assistant message with multiple content parts
+      # (all created within microseconds)
+
+      # Part 0: Thinking block
+      %DisplayMessage{sequence: 0, content_type: "thinking", ...}
+
+      # Part 1: Text response
+      %DisplayMessage{sequence: 1, content_type: "text", ...}
+
+      # Part 2: Image
+      %DisplayMessage{sequence: 2, content_type: "image", ...}
+
+      # Next user message (resets to 0)
+      %DisplayMessage{sequence: 0, content_type: "text", ...}
+
+  ### Querying:
+
+  Always order by both timestamp and sequence:
+
+      from m in DisplayMessage,
+        where: m.conversation_id == ^conversation_id,
+        order_by: [asc: m.inserted_at, asc: m.sequence]
+
+  This guarantees deterministic ordering even when multiple messages share
+  the same microsecond timestamp.
+  """
+
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  alias __MODULE__
+  alias SpreadSheetAi.Conversations.Conversation
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  # Valid content types
+  @content_types ~w(text thinking image file_reference structured_data notification error tool_call tool_result todo_snapshot)
+
+  # Valid TODO statuses (matches Sagents.Todo.status enum)
+  @todo_statuses ~w(pending in_progress completed cancelled)
+
+  schema "sagents_display_messages" do
+    belongs_to :conversation, Conversation
+
+    # "user", "assistant", "tool", "system"
+    field :message_type, :string
+    # Flexible JSONB storage
+    field :content, :map
+    field :tool_call_id, :string
+    # Type of content for rendering
+    field :content_type, :string
+    # Message-local ordering (0-based, resets per message)
+    field :sequence, :integer, default: 0
+    # Tool execution status: "pending", "executing", "completed", "failed",
+    # "interrupted", "cancelled"
+    field :status, :string, default: "completed"
+    field :metadata, :map, default: %{}
+
+    timestamps(type: :utc_datetime_usec, updated_at: false)
+  end
+
+  @doc false
+  def create_changeset(conversation_id, attrs) do
+    %DisplayMessage{}
+    |> cast(attrs, [
+      :message_type,
+      :content,
+      :tool_call_id,
+      :content_type,
+      :sequence,
+      :status,
+      :metadata
+    ])
+    |> put_change(:conversation_id, conversation_id)
+    |> common_validations()
+  end
+
+  @doc false
+  def changeset(%DisplayMessage{} = message, attrs) do
+    message
+    |> cast(attrs, [
+      :message_type,
+      :content,
+      :tool_call_id,
+      :content_type,
+      :sequence,
+      :status,
+      :metadata
+    ])
+    |> common_validations()
+  end
+
+  defp common_validations(changeset) do
+    changeset
+    |> validate_required([:conversation_id, :message_type, :content, :content_type])
+    |> validate_inclusion(:content_type, @content_types)
+    |> validate_inclusion(:status, [
+      "pending",
+      "executing",
+      "completed",
+      "failed",
+      "interrupted",
+      "cancelled"
+    ])
+    |> validate_number(:sequence, greater_than_or_equal_to: 0)
+    |> validate_content_structure()
+    |> foreign_key_constraint(:conversation_id)
+  end
+
+  # Validate content structure based on content_type.
+  # Delegates to multi-clause `validate_content/2` so each shape is its own
+  # function head. Pattern-matched heads don't contribute to cyclomatic
+  # complexity, leaving room to grow the whitelist without tripping Credo.
+  # NOTE: content keys are strings (from JSONB), not atoms.
+  defp validate_content_structure(changeset) do
+    content_type = get_field(changeset, :content_type)
+    content = get_field(changeset, :content)
+
+    case validate_content(content_type, content) do
+      :ok -> changeset
+      {:error, msg} -> add_error(changeset, :content, msg)
+    end
+  end
+
+  # Allow nil during build
+  defp validate_content(nil, _content), do: :ok
+  defp validate_content("text", %{"text" => _text}), do: :ok
+  defp validate_content("thinking", %{"text" => _text}), do: :ok
+  defp validate_content("image", %{"url" => _url}), do: :ok
+  defp validate_content("image", %{"data" => _data, "mime_type" => _mime_type}), do: :ok
+  defp validate_content("file_reference", %{"path" => _path, "name" => _name}), do: :ok
+  defp validate_content("structured_data", %{"format" => _format, "data" => _data}), do: :ok
+  defp validate_content("notification", %{"text" => _text}), do: :ok
+  defp validate_content("error", %{"text" => _text}), do: :ok
+  defp validate_content("tool_call", %{"call_id" => _call_id, "name" => _name, "arguments" => _arguments}), do: :ok
+
+  defp validate_content("tool_result", %{"tool_call_id" => _tool_call_id, "name" => _name, "content" => _content}),
+    do: :ok
+
+  defp validate_content("todo_snapshot", %{"todos" => todos}) when is_list(todos) do
+    if Enum.all?(todos, &valid_todo_entry?/1),
+      do: :ok,
+      else: {:error, "todo_snapshot has invalid todo entries"}
+  end
+
+  defp validate_content(content_type, _content),
+    do: {:error, "invalid structure for content_type #{content_type}"}
+
+  defp valid_todo_entry?(%{"id" => id, "content" => content, "status" => status})
+       when is_integer(id) and is_binary(content) and is_binary(status) do
+    status in @todo_statuses
+  end
+
+  defp valid_todo_entry?(_other), do: false
+
+  @doc """
+  Returns the text representation of any content type for searching/indexing.
+  NOTE: content keys are strings (from JSONB), not atoms
+  """
+  def to_text(%DisplayMessage{content_type: "text", content: %{"text" => text}}), do: text
+  def to_text(%DisplayMessage{content_type: "thinking", content: %{"text" => text}}), do: text
+  def to_text(%DisplayMessage{content_type: "image", content: content}) do
+    Map.get(content, "caption") || Map.get(content, "alt_text") || ""
+  end
+  def to_text(%DisplayMessage{content_type: "file_reference", content: %{"name" => name}}), do: "File: #{name}"
+  def to_text(%DisplayMessage{content_type: "structured_data", content: content}), do: "Data: #{Map.get(content, "format", "")}"
+  def to_text(%DisplayMessage{content_type: "notification", content: %{"text" => text}}), do: text
+  def to_text(%DisplayMessage{content_type: "error", content: %{"text" => text}}), do: text
+  def to_text(%DisplayMessage{
+        content_type: "tool_call",
+        content: %{"name" => name, "arguments" => args}
+      }) do
+    "Tool call: #{name}(#{inspect(args)})"
+  end
+  def to_text(%DisplayMessage{
+        content_type: "tool_result",
+        content: %{"name" => name, "content" => content}
+      }) do
+    "Tool result from #{name}: #{content}"
+  end
+
+  def to_text(%DisplayMessage{content_type: "todo_snapshot", content: %{"summary" => s}})
+      when is_map(s) do
+    "Todo list: #{Map.get(s, "pending", 0)} pending, #{Map.get(s, "in_progress", 0)} in progress, #{Map.get(s, "completed", 0)} completed"
+  end
+
+  def to_text(%DisplayMessage{content_type: "todo_snapshot", content: %{"todos" => todos}}) do
+    "Todo list (#{length(todos)} items)"
+  end
+
+  def to_text(_message), do: ""
+end
