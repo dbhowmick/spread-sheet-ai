@@ -447,6 +447,63 @@ Contract tool status maps to the AI Elements `ToolUIPart['state']`:
 - **Empty conversation:** `ConversationEmptyState` with a few `Suggestion`
   chips ("Create a monthly budget sheet"…).
 
+### 8.3 What F5 settled
+
+F6 was folded in: the backend reached M3 before F5 started, so the AI emits tool
+calls and `focus_sheet` the moment chat works at all.
+
+- **A queued message arrives twice, so "pending bubbles" would double it.** The
+  server stores the display message *and* broadcasts `message_queued`
+  (`conversation_events.ex`, `{:message_queued, _}`), so §8.1's
+  `queued: {sender, text}[]` rendered as its own bubble would show every queued
+  message a second time. Queued-ness is therefore a **badge on the stored
+  message**, matched on `sender.id` plus the trimmed text — the notice carries no
+  id, and the server strips the `"[Name]: "` prefix. The two race, so the reducer
+  matches in both directions and parks an unmatched notice in `pendingQueued`.
+  Verified live: one bubble, one badge.
+- **Marks clear on the next `status` event of any kind.** The server pushes
+  `status` only when it changes, so any status means the run boundary moved and
+  nothing marked before it is still waiting. That holds whether Sagents goes
+  `running → idle` first or steps straight into the queued turn — which
+  "clear when the next run starts" would have missed.
+- **The push is `status`, not `agent_status`**, it carries `error: string | null`,
+  and `not_started` appears only in the join reply.
+- **`inserted_at` is not a sort key.** Parts of one assistant turn share a
+  timestamp and the `sequence` that orders them is not serialized, so messages
+  are kept in **arrival order** and upserted by `id` in place. Upserting is
+  required, not an optimization: the channel re-pushes every stored message from
+  `last_message_at` on when a pending agent subscription is revived.
+- **No optimistic echo is possible.** `send_message` replies `{}` and the message
+  returns with a server id; contract §7.2 has no `client_op_id` analogue, so a
+  preview could never be reconciled. The input clears on send and the bubble
+  appears on the round trip.
+- **The stop control is its own button, not `PromptInputSubmit status`.** Enter
+  in the textarea always submits the form, so a stop-on-submit would make Enter
+  *cancel* the turn instead of queueing the message — the opposite of CS-4.
+- **`focus_sheet` is a field on the entry, not a callback.** §8.1 sketched a
+  callback registered with `useConversation`; a `focusRequest {sheetId, reason,
+  seq}` keeps the reducer the only place state changes, is testable without a
+  component, and avoids deciding whose callback wins when a ref-counted entry has
+  several holders. `seq` is what makes two requests for the same sheet fire the
+  watcher twice.
+- **Reopening a conversation opens its most recent linked sheet.** `focus_sheet`
+  is live-only, so a session whose sheets the AI built in an earlier visit would
+  otherwise show an empty panel. The bootstrap runs only when nothing is stored:
+  once the user has tabs of their own, or has closed them all, that is their
+  choice.
+- **`open_sheet` moves only your own tab.** The server links the sheet and
+  broadcasts `sheets` to everyone but deliberately sends no `focus_sheet`.
+- **Unknown `content_type`s survive.** `MessageJSON` whitelists six types and
+  passes anything else through raw, so `ChatMessage` reads `content.text`
+  defensively rather than dropping the message.
+- **`SheetPane` exists because `useSheet()` cannot be called in a `v-for`.** Each
+  tab needs its own ref-counted hold, so each is its own component; `SheetView`
+  now renders the same component, and panes are hidden with `v-show` so a tab
+  switch keeps scroll position and the active cell.
+- **The conversation mock was never written**, exactly as §9's note predicted:
+  the backend passed M2 and M3 first, so `transport/mock/index.ts` stays a
+  skeleton that satisfies the interface.
+
 ## 9. Mock backend (parallel development)
 
 `transport/mock/` is enabled with `VITE_MOCK_BACKEND=1`. It's an
@@ -519,8 +576,8 @@ green.
 | [x] | **F2. Sheet state core** | `apply-op`, `values`, `consistency`, `stores/sheets`, `useSheet` (mock sheet server dropped — see §9) | Unit tests cover contract §5.4 and §6 | none |
 | [x] | **F3. Read-only grid** | `useSheetTable`, `SheetGrid` (virtualized, sticky header and label), display cells, `SheetsView` + create dialog, `SheetView` | A 1,000 × 30 sheet from `dev/sheets.exs` scrolls smoothly. Participants and cues render from real `op_applied` events | none (uses the live backend) |
 | [x] | **F4. Editing** | Navigation, editors, local preview, rollback, structure menus, new row, delete, move, copy/paste, toolbar | Every op in §4.2 can be done from the UI. Two browser windows stay in sync, and an open editor survives a remote change to its own cell | none (uses the live backend) |
-| [ ] | **F5. Chat** | `stores/conversations`, `ChatPanel`, message rendering, `ConversationsView`, `WorkspaceView` with the split pane and sheet tabs | Chat works against the mock scripted agent. **Switch to the real backend at M2** | **M2** |
-| [ ] | **F6. AI integration** | `focus_sheet` → sheet tabs, linked sheets list, `OpenSheetDialog`, tool call rendering | A `/demo` script on the mock, then real AI tools at **M3**, open and edit sheets live | **M3** |
+| [x] | **F5. Chat** | `stores/conversations`, `ChatPanel`, message rendering, `ConversationsView`, `WorkspaceView` with the split pane and sheet tabs | Chat works against the real backend: send, stream, cancel, queued messages | **M2** |
+| [x] | **F6. AI integration** | `focus_sheet` → sheet tabs, linked sheets list, `OpenSheetDialog`, tool call rendering | **Folded into F5** (see §8.3): the backend was already at M3, so shipping chat without tool rendering or `focus_sheet` would have meant a placeholder thrown away days later | **M3** |
 | [ ] | **F7. Polish** | Empty and error states, reconnect indicator, a two-browser manual run, docs | The requirements §1 questions are demonstrable end to end | M3 |
 
 ### 7.6 What F3 settled
