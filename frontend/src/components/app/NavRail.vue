@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { initials } from '@/lib/people'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 
@@ -32,14 +33,7 @@ const activeSection = computed(() => {
   return route.name
 })
 
-const initials = computed(() => {
-  const name = auth.displayName.trim()
-  if (!name) return '?'
-  const parts = name.split(/\s+/)
-  const first = parts[0]?.[0] ?? ''
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : ''
-  return (first + last).toUpperCase() || '?'
-})
+const userInitials = computed(() => initials(auth.displayName))
 
 async function handleSignOut() {
   await auth.signOut()
@@ -91,7 +85,7 @@ async function handleSignOut() {
                   :src="auth.currentUser.avatar_url"
                 />
                 <AvatarFallback class="bg-transparent text-xs font-medium">
-                  {{ initials }}
+                  {{ userInitials }}
                 </AvatarFallback>
               </Avatar>
             </button>

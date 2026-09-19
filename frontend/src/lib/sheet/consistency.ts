@@ -241,3 +241,17 @@ export function computeView(entry: SheetEntry): SheetState {
   if (entry.pending.length === 0) return entry.confirmed
   return entry.pending.reduce((state, p) => applyOp(state, p.op), entry.confirmed)
 }
+
+/**
+ * The cells a pending `set_cells` preview is covering, keyed by `cellKey`, so
+ * the grid can style them as unconfirmed. Structural previews have no stable
+ * cell to mark.
+ */
+export function pendingCellKeys(pending: PendingOp[]): Set<string> {
+  const keys = new Set<string>()
+  for (const { op } of pending) {
+    if (op.type !== 'set_cells') continue
+    for (const cell of op.cells) keys.add(cellKey(cell.row_id, cell.column_id))
+  }
+  return keys
+}

@@ -238,6 +238,38 @@ end
 
 Tests use `config :spread_sheet_ai, Oban, testing: :inline` (jobs run synchronously on enqueue).
 
+## Sheet grid (SPA)
+
+The read-only grid landed in frontend phase F3 (`docs/frontend-plan.md` §7).
+
+- `composables/useSheetTable.ts` holds the TanStack v9 table: it owns only
+  per-user view state (column widths in `localStorage`, the pinned start
+  edge, row selection). Row and column order always comes from the
+  server's `SheetState`.
+- `components/sheet/SheetGrid.vue` is one scroll container with a sticky
+  header, `@tanstack/vue-virtual` rows, and the gutter plus label column
+  pinned with `position: sticky`. Widths are applied through a single
+  `--grid-cols` variable.
+- Cues (the flash and "changed by" marker) and pending previews reach
+  cells through `components/sheet/context.ts` (`provide`/`inject`), keyed
+  by `cellKey`. Pure layout helpers live in `lib/sheet/grid.ts`.
+- **TanStack v9's own docs ship in the package**:
+  `frontend/node_modules/@tanstack/vue-table/skills/*/SKILL.md`. Read them
+  rather than v8 examples from the web.
+
+## Dev helpers
+
+`dev/sheets.exs` is not compiled into the app. Load it from an IEx session
+attached to the running server (`iex -S mix phx.server`, then
+`c "dev/sheets.exs"`) so its ops run in the server's VM and broadcast to
+connected browsers:
+
+- `Dev.Sheets.big_sheet(email, rows \\ 1000, cols \\ 30)` — a large sheet
+  for scrolling and virtualization work.
+- `Dev.Sheets.simulate_edits(sheet_id, email, count, every_ms)` — a
+  background task making random edits as another user, for cues and
+  presence.
+
 ## Dev flow
 
 `mix phx.server` runs Phoenix on `:4000` and spawns Vite on `:4001`. The root layout (`lib/spread_sheet_ai_web/components/layouts/root.html.heex`) conditionally injects either the dev `<script src="//host:4001/@vite/client">` tags or the prod digested `/assets/main.{js,css}` links, keyed off `Application.get_env(:spread_sheet_ai, :vite_dev_server)`. Prod build: `MIX_ENV=prod mix assets.deploy` → Vite builds + `phx.digest` cache-busts.

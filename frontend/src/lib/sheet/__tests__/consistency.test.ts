@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computeView,
   entryFromSheet,
+  pendingCellKeys,
   reduce,
   type SheetEntry,
   type SheetEvent,
@@ -331,5 +332,34 @@ describe('purity', () => {
     expect(start.pending).toEqual([])
     expect(start.cues.size).toBe(0)
     expect(start.resyncRequested).toBe(false)
+  })
+})
+
+describe('pendingCellKeys', () => {
+  it('names the cells under an unconfirmed set_cells', () => {
+    const entry = reduce(entryFromSheet(sheet()), {
+      type: 'local_op',
+      clientOpId: 'op-1',
+      op: setQ1(10),
+      at: 1,
+    }).entry
+
+    expect(pendingCellKeys(entry.pending)).toEqual(new Set([cellKey('r1', Q1)]))
+  })
+
+  it('ignores structural previews, which mark no cell', () => {
+    const op: Op = { type: 'delete_rows', row_ids: ['r1'] }
+    const entry = reduce(entryFromSheet(sheet()), {
+      type: 'local_op',
+      clientOpId: 'op-1',
+      op,
+      at: 1,
+    }).entry
+
+    expect(pendingCellKeys(entry.pending).size).toBe(0)
+  })
+
+  it('is empty with nothing pending', () => {
+    expect(pendingCellKeys([]).size).toBe(0)
   })
 })

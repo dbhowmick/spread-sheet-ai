@@ -16,7 +16,8 @@ import {
   type MaybeRefOrGetter,
 } from 'vue'
 
-import { computeView, type SheetStatus } from '@/lib/sheet/consistency'
+import type { NormalizedError } from '@/lib/errors'
+import { computeView, pendingCellKeys, type Cue, type SheetStatus } from '@/lib/sheet/consistency'
 import type { SheetState } from '@/lib/sheet/state'
 import { useSheetsStore } from '@/stores/sheets'
 import type { Op, SheetId, UserRef } from '@/types/contract'
@@ -24,10 +25,19 @@ import type { Op, SheetId, UserRef } from '@/types/contract'
 export interface UseSheet {
   view: ComputedRef<SheetState | null>
   status: ComputedRef<SheetStatus>
+  /** Why the join failed, while `status` is `'error'`. */
+  error: ComputedRef<NormalizedError | null>
   participants: ComputedRef<UserRef[]>
+  /** Remote-change cues, keyed by `cellKey`. */
+  cues: ComputedRef<Map<string, Cue>>
+  lastChange: ComputedRef<Cue | null>
+  /** Cells covered by an unconfirmed `set_cells` preview, keyed by `cellKey`. */
+  pendingCells: ComputedRef<Set<string>>
   apply: (op: Op) => Promise<void>
   resync: () => Promise<void>
 }
+
+const EMPTY_CUES: Map<string, Cue> = new Map()
 
 export function useSheet(sheetId: MaybeRefOrGetter<SheetId>): UseSheet {
   const store = useSheetsStore()
@@ -57,7 +67,11 @@ export function useSheet(sheetId: MaybeRefOrGetter<SheetId>): UseSheet {
       return current ? computeView(current) : null
     }),
     status: computed<SheetStatus>(() => entry.value?.status ?? 'joining'),
+    error: computed(() => store.sheets.get(toValue(sheetId))?.error ?? null),
     participants: computed(() => entry.value?.participants ?? []),
+    cues: computed(() => entry.value?.cues ?? EMPTY_CUES),
+    lastChange: computed(() => entry.value?.lastChange ?? null),
+    pendingCells: computed(() => pendingCellKeys(entry.value?.pending ?? [])),
     apply: (op: Op) => store.sendOp(toValue(sheetId), op),
     resync: () => store.requestSnapshot(toValue(sheetId)),
   }

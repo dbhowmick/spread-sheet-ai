@@ -51,6 +51,7 @@ src/lib/transport/
   phoenix.ts                     channel-backed implementation
   mock/                          in-memory mock backend (§9)
 src/lib/sheet/
+  grid.ts                        pure grid layout: default widths, pinned order, --grid-cols, cue freshness
   apply-op.ts                    pure applyOp(state, op) for Op and AppliedOp
   values.ts                      per-type parse / format / validate (mirrors server casting)
   consistency.ts                 pure reducer: confirmed + pending + incoming events (contract §5.4)
@@ -67,9 +68,13 @@ src/components/sheet/
   SheetGrid.vue                  scroll container, virtualized rows, sticky header and label column
   SheetHeaderCell.vue            header + column DropdownMenu + resize handle
   SheetRow.vue, SheetCell.vue    SheetCell chooses display/editor from the registry
-  cells/registry.ts              column_type → {display, editor, parse, format, align}
+  SheetRowGutter.vue             row number, swapped for the selection checkbox on hover
+  context.ts                     provide/inject of cues, pending cells and the cue clock
+  cells/registry.ts              column_type → {display, editor, align}
   cells/{Text,Number,Boolean,Date,Label}{Display,Editor}.vue
-  AddColumnDialog.vue, NewRowInput.vue, SheetToolbar.vue, ParticipantAvatars.vue
+  AddColumnDialog.vue, NewRowInput.vue, SheetToolbar.vue, CreateSheetDialog.vue
+src/components/app/
+  ParticipantAvatars.vue         shared by the sheet toolbar and (F5) the chat header
 src/components/chat/
   ChatPanel.vue                  AI Elements Conversation + PromptInput
   ChatMessage.vue                maps a contract Message to AI Elements parts
@@ -507,11 +512,45 @@ green.
 |---|---|---|---|---|
 | [x] | **F1. Foundations** | Dependencies, Vitest, `types/contract.ts`, `AppLayout` + routes, socket and transport interfaces, mock skeleton | The shell navigates between the empty views. The socket connects against the backend's Phase 1, or the mock | none (mock) |
 | [x] | **F2. Sheet state core** | `apply-op`, `values`, `consistency`, `stores/sheets`, `useSheet` (mock sheet server dropped — see §9) | Unit tests cover contract §5.4 and §6 | none |
-| [ ] | **F3. Read-only grid** | `useSheetTable`, `SheetGrid` (virtualized, sticky header and label), display cells, `SheetsView` + create dialog, `SheetView` | A 1,000 × 30 mock sheet scrolls smoothly. Participants and cues render from mock events | none |
+| [x] | **F3. Read-only grid** | `useSheetTable`, `SheetGrid` (virtualized, sticky header and label), display cells, `SheetsView` + create dialog, `SheetView` | A 1,000 × 30 sheet from `dev/sheets.exs` scrolls smoothly. Participants and cues render from real `op_applied` events | none (uses the live backend) |
 | [ ] | **F4. Editing** | Navigation, editors, local preview, rollback, structure menus, new row, delete, move, copy/paste, toolbar | Every op can be done from the UI. The mock's simulated remote user's edits show up with cues. **Switch to the real backend at M1**, and two browser windows then stay in sync | **M1** |
 | [ ] | **F5. Chat** | `stores/conversations`, `ChatPanel`, message rendering, `ConversationsView`, `WorkspaceView` with the split pane and sheet tabs | Chat works against the mock scripted agent. **Switch to the real backend at M2** | **M2** |
 | [ ] | **F6. AI integration** | `focus_sheet` → sheet tabs, linked sheets list, `OpenSheetDialog`, tool call rendering | A `/demo` script on the mock, then real AI tools at **M3**, open and edit sheets live | **M3** |
 | [ ] | **F7. Polish** | Empty and error states, reconnect indicator, a two-browser manual run, docs | The requirements §1 questions are demonstrable end to end | M3 |
+
+### 7.6 What F3 settled
+
+- **The v9 names in §7.1 are right**, checked against the installed 9.2.4:
+  `tableFeatures`, `useTable`, `metaHelper`, `columnSizingFeature` +
+  `columnResizingFeature` (both needed for interactive resizing),
+  `columnPinningFeature`, `rowSelectionFeature`,
+  `column.getStart('start')` and `header.getResizeHandler()`. Two things the
+  plan didn't say: `useTable` needs its generics given explicitly
+  (`useTable<SheetFeatures, Row>`), because `TData` doesn't infer through a
+  computed `columns`; and the package ships its own docs in
+  `node_modules/@tanstack/vue-table/skills/*/SKILL.md`, which are the
+  reference to use.
+- **Cues and pending state reach cells through `provide`/`inject`**
+  (`components/sheet/context.ts`), not through the TanStack cell context.
+  A cell looks up only its own `cellKey`, so one remote change re-renders
+  one cell instead of every visible row.
+- **One clock per grid.** Cue markers expire 30 s after the change, driven
+  by a single 5 s interval in `SheetGrid`. The 1.5 s flash reads
+  `Date.now()` once per cue, so a row scrolled back into view doesn't
+  replay an old flash.
+- **`--grid-cols` on the scroll container.** Every row is a CSS grid using
+  that one variable, so a resize restyles one property rather than each
+  cell. Header and body render pinned columns first
+  (`getStartLeafHeaders` / `row.getStartVisibleCells()`), which keeps cell
+  order and the template in step.
+- **A failed join is a state, not a toast.** `stores/sheets.ts` keeps the
+  entry with `status: 'error'` and the error, so `SheetView` can show
+  "Sheet not found" instead of spinning forever.
+- **`dev/sheets.exs`** replaces the two mock affordances F3 needed: a big
+  sheet (`Dev.Sheets.big_sheet/3`) and a simulated remote user
+  (`Dev.Sheets.simulate_edits/4`). Load it with `c "dev/sheets.exs"` from
+  `iex -S mix phx.server`, so the ops run in the server's own VM and
+  broadcast to connected browsers.
 
 ## 12. Risks
 
@@ -521,4 +560,4 @@ green.
 | Rebuilding TanStack rows on every op is O(rows) | Fine at POC sizes. If profiling shows a problem, give the grid a custom row model or skip TanStack's row model for the body |
 | Reading `table.getRowModel()` right after replacing `data` is stale until the next tick | Read through `computed`s and templates, not synchronously after a write. Use `await nextTick()` where an imperative read is needed |
 | The mock and the backend drift apart | Both follow `contract.md`. The shared `types/contract.ts` and the reuse of `apply-op` keep the mock honest. Retire it at each milestone |
-| Keyboard, virtualization and sticky layout interact in subtle ways | Build the grid on its own in F3 and F4, with `SheetView` as a harness, before adding chat |
+| Keyboard, virtualization and sticky layout interact in subtle ways | Build the grid on its own in F3 and F4, with `SheetView` as a harness, before adding chat. F3 verified virtualization (65 of 1,000 rows in the DOM), sticky header and pinned columns against the real backend |

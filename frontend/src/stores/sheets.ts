@@ -12,6 +12,7 @@ import {
   type SheetEvent,
   type SheetStatus,
 } from '@/lib/sheet/consistency'
+import type { NormalizedError } from '@/lib/errors'
 import type { SheetState } from '@/lib/sheet/state'
 import { useErrorMessage } from '@/composables/useErrorMessage'
 import { useAuthStore } from '@/stores/auth'
@@ -22,6 +23,8 @@ interface OpenSheet {
   transport: SheetTransport
   /** How many `useSheet` callers are holding this sheet open (§6.4). */
   refs: number
+  /** Why the join failed, while `entry.status` is `'error'`. */
+  error: NormalizedError | null
 }
 
 /**
@@ -90,15 +93,21 @@ export const useSheetsStore = defineStore('sheets', () => {
     })
 
     const result = await transport.join()
+    const open = sheets.value.get(sheetId)
+
     if (!result.ok) {
       transport.leave()
-      sheets.value.delete(sheetId)
-      triggerRef(sheets)
-      toast.error(result.error.message ?? errorMessage(result.error.code))
+      // The entry stays, in `error`, so the view can say why (a deleted or
+      // mistyped sheet id would otherwise read as `joining` forever). It is
+      // released through `close()` like any other.
+      if (open) {
+        open.entry = { ...open.entry, status: 'error' }
+        open.error = result.error
+        triggerRef(sheets)
+      }
       return
     }
 
-    const open = sheets.value.get(sheetId)
     const entry = entryFromSheet(result.data.sheet)
     if (open) {
       open.transport = transport
@@ -124,6 +133,7 @@ export const useSheetsStore = defineStore('sheets', () => {
       entry: { ...entryFromSheet(emptySheet(sheetId)), status: 'joining' },
       transport: placeholderTransport(),
       refs: 1,
+      error: null,
     })
     triggerRef(sheets)
 
@@ -176,6 +186,10 @@ export const useSheetsStore = defineStore('sheets', () => {
     return computed(() => sheets.value.get(sheetId)?.entry.status ?? 'joining')
   }
 
+  function errorOf(sheetId: SheetId): ComputedRef<NormalizedError | null> {
+    return computed(() => sheets.value.get(sheetId)?.error ?? null)
+  }
+
   function participantsOf(sheetId: SheetId): ComputedRef<UserRef[]> {
     return computed(() => sheets.value.get(sheetId)?.entry.participants ?? [])
   }
@@ -188,6 +202,7 @@ export const useSheetsStore = defineStore('sheets', () => {
     sendOp,
     viewOf,
     statusOf,
+    errorOf,
     participantsOf,
     requestSnapshot,
   }
