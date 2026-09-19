@@ -412,6 +412,26 @@ defmodule SpreadSheetAi.Accounts do
 
   def fetch_session_by_token(_), do: nil
 
+  @doc """
+  Looks up an active Session by id (used by the WebSocket, whose signed
+  token carries the session id). Returns the Session with `:user`
+  preloaded, or `nil` when the session is missing, revoked, expired, or its
+  user is not active. Does not touch `last_used_at`.
+  """
+  def fetch_active_session(session_id) do
+    case Ecto.UUID.cast(session_id) do
+      {:ok, id} ->
+        Session
+        |> SessionQueries.by_id(id)
+        |> SessionQueries.active()
+        |> SessionQueries.with_active_user()
+        |> Repo.one()
+
+      :error ->
+        nil
+    end
+  end
+
   @doc "Bumps `last_used_at`/`expires_at` if the throttle window has elapsed."
   def maybe_touch_session(%Session{} = session) do
     throttle = Config.session_last_used_throttle_seconds()

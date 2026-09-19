@@ -582,7 +582,7 @@ backend.
 
 | Phase | Deliverables | Done when | Completed |
 |---|---|---|---|
-| **1. Foundations** | Scope, Presence, UserSocket and the socket-token endpoint, `Accounts.fetch_active_session/1`, config blocks | Socket connects with a valid token and is refused without one (tests) | ⬜ |
+| **1. Foundations** | Scope, Presence, UserSocket and the socket-token endpoint, `Accounts.fetch_active_session/1`, config blocks | Socket connects with a valid token and is refused without one (tests) | ✅ 2026-09-20 |
 | **2. Sheets data model** | 4 migrations (`sheets`, `sheet_columns`, `sheet_rows`, `sheet_changes`), schemas and `_queries` modules, `SheetsFixtures` | Migrations run and roll back. Tests show the unique indexes hold: column names, row labels, one label column per sheet, one change per version | ⬜ |
 | **3. Sheet engine** | `State`, `Op`, `Values`, `Engine` (`create` and all 10 ops) | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) | ⬜ |
 | **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ⬜ |

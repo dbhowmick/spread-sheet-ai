@@ -74,6 +74,15 @@ config :spread_sheet_ai, Oban,
   queues: oban_queues,
   plugins: oban_plugins
 
+# AI model overrides (docs/backend-plan.md §7.4).
+ai_overrides =
+  [model: System.get_env("AI_MODEL"), title_model: System.get_env("AI_TITLE_MODEL")]
+  |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+
+if ai_overrides != [] do
+  config :spread_sheet_ai, :ai, ai_overrides
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

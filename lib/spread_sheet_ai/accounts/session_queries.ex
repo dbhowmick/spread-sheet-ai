@@ -5,6 +5,10 @@ defmodule SpreadSheetAi.Accounts.SessionQueries do
 
   alias SpreadSheetAi.Accounts.Session
 
+  def by_id(query \\ Session, id) do
+    where(query, [s], s.id == ^id)
+  end
+
   def by_token_hash(query \\ Session, hash) do
     where(query, [s], s.token_hash == ^hash)
   end
@@ -16,6 +20,14 @@ defmodule SpreadSheetAi.Accounts.SessionQueries do
   def active(query \\ Session) do
     now = DateTime.utc_now()
     where(query, [s], is_nil(s.revoked_at) and s.expires_at > ^now)
+  end
+
+  @doc "Joins the session's user, keeps only active users, and preloads it."
+  def with_active_user(query \\ Session) do
+    from s in query,
+      join: u in assoc(s, :user),
+      where: u.status == "active",
+      preload: [user: u]
   end
 
   def expired(query \\ Session, cutoff_at) do

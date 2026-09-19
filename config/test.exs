@@ -28,6 +28,12 @@ config :spread_sheet_ai, SpreadSheetAi.Mailer, adapter: Swoosh.Adapters.Test
 # assertions can observe their effects without polling.
 config :spread_sheet_ai, Oban, testing: :inline
 
+# Small caps and a short idle timeout so limits and idle stop are cheap to test.
+config :spread_sheet_ai, :sheets,
+  idle_timeout: 200,
+  read_max_rows: 10,
+  write_max_cells: 50
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 

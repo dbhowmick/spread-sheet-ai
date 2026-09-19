@@ -23,6 +23,8 @@ defmodule SpreadSheetAi.Accounts.Session do
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime, updated_at: false]
 
+  @type t :: %__MODULE__{}
+
   schema "sessions" do
     belongs_to :user, User
 

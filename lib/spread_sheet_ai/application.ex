@@ -12,6 +12,7 @@ defmodule SpreadSheetAi.Application do
       SpreadSheetAi.Repo,
       {DNSCluster, query: Application.get_env(:spread_sheet_ai, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: SpreadSheetAi.PubSub},
+      SpreadSheetAiWeb.Presence,
       {Oban, Application.fetch_env!(:spread_sheet_ai, Oban)},
       # Start a worker by calling: SpreadSheetAi.Worker.start_link(arg)
       # {SpreadSheetAi.Worker, arg},

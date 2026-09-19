@@ -44,6 +44,7 @@ defmodule SpreadSheetAiWeb.Router do
     pipe_through [:api, :require_auth]
 
     get "/me", MeController, :show
+    get "/socket_token", SocketTokenController, :show
     delete "/sessions/current", SessionsController, :delete_current
     post "/sessions/revoke-all", SessionsController, :revoke_all
     post "/me/switch-organization", SessionsController, :switch_organization

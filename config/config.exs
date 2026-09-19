@@ -64,6 +64,22 @@ config :spread_sheet_ai, :auth,
   password_reset_token_ttl_minutes: 60,
   mail_from: {"SpreadSheetAi", "noreply@example.com"}
 
+# Sheet processes and op size caps (docs/backend-plan.md §9).
+config :spread_sheet_ai, :sheets,
+  idle_timeout: :timer.minutes(15),
+  # read_rows page cap
+  read_max_rows: 200,
+  # set_cells cells / add_rows rows per op
+  write_max_cells: 1_000
+
+# AI copilot models, via OpenRouter (docs/backend-plan.md §7.4). Provisional
+# until the Phase 8 model evaluation. Overridable at runtime with AI_MODEL /
+# AI_TITLE_MODEL.
+config :spread_sheet_ai, :ai,
+  model: "openrouter:anthropic/claude-sonnet-5",
+  title_model: "openrouter:anthropic/claude-haiku-4.5",
+  max_tokens: 4096
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

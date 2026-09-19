@@ -115,4 +115,45 @@ defmodule SpreadSheetAi.AccountsTest do
       assert Accounts.list_sessions_for_user(user.id) == []
     end
   end
+
+  describe "fetch_active_session/1" do
+    alias SpreadSheetAi.Accounts.{Session, User}
+
+    setup do
+      user = AuthFixtures.verified_user_fixture()
+      %{session: session} = AuthFixtures.session_fixture(user)
+      %{user: user, session: session}
+    end
+
+    test "returns the session with its user preloaded", %{user: user, session: session} do
+      assert %Session{id: id, user: %User{id: user_id}} =
+               Accounts.fetch_active_session(session.id)
+
+      assert id == session.id
+      assert user_id == user.id
+    end
+
+    test "returns nil for a revoked session", %{session: session} do
+      session |> Session.changeset(%{revoked_at: now()}) |> Repo.update!()
+      assert Accounts.fetch_active_session(session.id) == nil
+    end
+
+    test "returns nil for an expired session", %{session: session} do
+      session |> Session.changeset(%{expires_at: DateTime.add(now(), -60)}) |> Repo.update!()
+      assert Accounts.fetch_active_session(session.id) == nil
+    end
+
+    test "returns nil when the user is not active", %{user: user, session: session} do
+      user |> User.changeset(%{status: "suspended"}) |> Repo.update!()
+      assert Accounts.fetch_active_session(session.id) == nil
+    end
+
+    test "returns nil for an unknown or malformed id" do
+      assert Accounts.fetch_active_session(Ecto.UUID.generate()) == nil
+      assert Accounts.fetch_active_session("not-a-uuid") == nil
+      assert Accounts.fetch_active_session(nil) == nil
+    end
+
+    defp now, do: DateTime.utc_now() |> DateTime.truncate(:second)
+  end
 end
