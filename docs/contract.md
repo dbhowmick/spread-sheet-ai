@@ -293,6 +293,27 @@ code shown:
   `too_many_cells`, with `meta: {max}`.
 - **Positions:** a position outside `0..length` → `invalid_position`.
 
+Clarifications (how the server applies the rules above):
+
+- **Trimming.** Sheet names, column names and labels are stored trimmed.
+  A blank name is `invalid_op`; a blank label is `label_required`.
+- **Positions.** For `add_column` and `add_rows` the position is where the
+  first new item lands, in `0..length`. For `move_column` and `move_row` it
+  is the item's final index after the move, in `0..length-1`. The label
+  column can be moved like any other column.
+- **Stored values.** A `""` text value is stored as `null` (an empty cell).
+  Whole-number floats are stored as integers (`12.0` → `12`). Dates are
+  `"YYYY-MM-DD"` strings. `AppliedOp` carries these stored forms.
+- **Duplicates inside one op** are `invalid_op`: the same row twice in
+  `delete_rows`, or the same cell twice in `set_cells`. Two rows with the
+  same label in one `add_rows` is `duplicate_label`.
+- **No-op ops** are accepted and still bump the version, for example moving
+  to the current position or changing a column to its current type.
+- **Label swaps.** In `set_cells`, labels are checked on their final values,
+  so two rows can swap labels in one op.
+- **`change_column_type` cells** list every row that had a value, with its
+  converted value. A value that converts to empty (blank text) is `null`.
+
 ## 7. Channel `conversation:<conversation_id>`
 
 ### 7.1 Join

@@ -224,14 +224,25 @@ into typed structs such as `%Op.SetCells{cells: [...]}`. It returns
 
 **`Sheets.Engine.apply(state, op, limits)`** returns one of:
 - `{:ok, new_state, applied_op, effects}`: `applied_op` is the normalized
-  contract `AppliedOp` map, with ids filled in and values cast;
-- `{:error, code, message, meta}`: `code` is from contract §8.
+  contract `AppliedOp` map, with string keys, ids filled in and values cast;
+- `{:error, code, message, meta}`: `code` is an atom from contract §8.
+  `Op.parse` and `Op.parse_create` use the same 4-tuple.
 
 `effects` is a list of DB-level instructions that the Persister turns into
-Multi steps, for example:
-- `{:insert_rows, [...]}`
-- `{:update_row_values, row_id, values}`
-- `{:shift_positions, :rows, from, delta}`
+Multi steps, in order. The full list is in the `Sheets.Engine` moduledoc:
+- `{:insert_sheet, attrs}`, `{:update_sheet, %{name}}`
+- `{:insert_column(s), …}`, `{:update_column, id, fields}`,
+  `{:delete_column, id}`, `{:remove_column_values, column_id}`
+- `{:insert_rows, [attrs]}`, `{:update_row, id, fields}` (with the full new
+  `values` map), `{:delete_rows, ids}`
+- `{:set_positions, :columns | :rows, [{id, position}]}`: only the ids whose
+  index changed. One generic effect covers inserts, moves and deletes, and
+  the Persister runs it as a single `UPDATE … FROM unnest(ids, positions)`.
+
+**Phase 4 note: label swaps.** `set_cells` may swap two labels in one op
+(contract §6 clarifications). The `(sheet_id, label_key)` unique index is
+not deferrable, so the Persister must write label changes in two steps,
+for example setting a temporary `label_key` (such as the row id) first.
 
 The engine enforces every rule in contract §6:
 - ids exist
@@ -590,7 +601,7 @@ backend.
 |---|---|---|---|
 | **1. Foundations** | Scope, Presence, UserSocket and the socket-token endpoint, `Accounts.fetch_active_session/1`, config blocks | Socket connects with a valid token and is refused without one (tests) | ✅ 2026-09-20 |
 | **2. Sheets data model** | 4 migrations (`sheets`, `sheet_columns`, `sheet_rows`, `sheet_changes`), schemas and `_queries` modules, `SheetsFixtures` | Migrations run and roll back. Tests show the unique indexes hold: column names, row labels, one label column per sheet, one change per version | ✅ 2026-09-20 |
-| **3. Sheet engine** | `State`, `Op`, `Values`, `Engine` (`create` and all 10 ops) | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) | ⬜ |
+| **3. Sheet engine** | `State`, `Op`, `Values`, `Engine` (`create` and all 10 ops) | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) | ✅ 2026-09-20 |
 | **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ⬜ |
 | **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ⬜ |
 | **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ⬜ |
