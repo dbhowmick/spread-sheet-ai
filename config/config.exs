@@ -80,6 +80,9 @@ config :spread_sheet_ai, :ai,
   title_model: "openrouter:anthropic/claude-haiku-4.5",
   max_tokens: 4096
 
+# OpenRouter model ids are often missing from ReqLLM's model catalog.
+config :req_llm, warn_unverified_models: false
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

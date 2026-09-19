@@ -162,6 +162,34 @@ the AI tools all call it. Details are in `docs/backend-plan.md` §4–§5.
   test exits. Use `SheetsFixtures.created_sheet_fixture/1` for sheets
   made the way the app makes them.
 
+## Agents (Sagents)
+
+The AI copilot runs one Sagents `AgentServer` per conversation. Details are
+in `docs/backend-plan.md` §7.
+
+- **Generated code:** `SpreadSheetAi.Conversations` (+ `conversations/`) and
+  `SpreadSheetAi.Agents.*` (`agents/`) came from `mix sagents.setup` and
+  were adapted:
+  - conversations are shared (the scope helpers don't filter);
+  - the sender is kept in display-message metadata;
+  - `AgentPersistence` is the one title writer;
+  - the factory has no filesystem or HITL.
+
+  These namespaces may call `Repo` directly; the schema/queries split
+  applies to our own code.
+- **Models:** `SpreadSheetAi.Agents.ChatModels` builds them from
+  `config :spread_sheet_ai, :ai` (OpenRouter via `ChatReqLLM`). ReqLLM
+  reads `OPENROUTER_API_KEY` from the env or from `.env` (gitignored).
+- **Sheet links:** `Sheets.link/3` and `Sheets.list_links/1` record which
+  sheets a conversation used (`conversation_sheets`).
+- **Tests never call a real model.** `SpreadSheetAi.Test.ScriptedChatModel`
+  replies from a script:
+  - `start_supervised!(ScriptedChatModel)` starts it, and `push/2` adds
+    replies;
+  - `ConversationsFixtures.start_agent!/2` starts an agent with the test
+    subscribed to it;
+  - agent tests are `async: false`.
+
 ## Background jobs (Oban)
 
 Oban runs in a two-release topology — queues split by `RELEASE_NAME` in `config/runtime.exs`:

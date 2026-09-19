@@ -132,6 +132,8 @@ defmodule SpreadSheetAi.Conversations.DisplayMessage do
   alias __MODULE__
   alias SpreadSheetAi.Conversations.Conversation
 
+  @type t :: %__MODULE__{}
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
@@ -234,10 +236,20 @@ defmodule SpreadSheetAi.Conversations.DisplayMessage do
   defp validate_content("structured_data", %{"format" => _format, "data" => _data}), do: :ok
   defp validate_content("notification", %{"text" => _text}), do: :ok
   defp validate_content("error", %{"text" => _text}), do: :ok
-  defp validate_content("tool_call", %{"call_id" => _call_id, "name" => _name, "arguments" => _arguments}), do: :ok
 
-  defp validate_content("tool_result", %{"tool_call_id" => _tool_call_id, "name" => _name, "content" => _content}),
-    do: :ok
+  defp validate_content("tool_call", %{
+         "call_id" => _call_id,
+         "name" => _name,
+         "arguments" => _arguments
+       }),
+       do: :ok
+
+  defp validate_content("tool_result", %{
+         "tool_call_id" => _tool_call_id,
+         "name" => _name,
+         "content" => _content
+       }),
+       do: :ok
 
   defp validate_content("todo_snapshot", %{"todos" => todos}) when is_list(todos) do
     if Enum.all?(todos, &valid_todo_entry?/1),
@@ -261,19 +273,27 @@ defmodule SpreadSheetAi.Conversations.DisplayMessage do
   """
   def to_text(%DisplayMessage{content_type: "text", content: %{"text" => text}}), do: text
   def to_text(%DisplayMessage{content_type: "thinking", content: %{"text" => text}}), do: text
+
   def to_text(%DisplayMessage{content_type: "image", content: content}) do
     Map.get(content, "caption") || Map.get(content, "alt_text") || ""
   end
-  def to_text(%DisplayMessage{content_type: "file_reference", content: %{"name" => name}}), do: "File: #{name}"
-  def to_text(%DisplayMessage{content_type: "structured_data", content: content}), do: "Data: #{Map.get(content, "format", "")}"
+
+  def to_text(%DisplayMessage{content_type: "file_reference", content: %{"name" => name}}),
+    do: "File: #{name}"
+
+  def to_text(%DisplayMessage{content_type: "structured_data", content: content}),
+    do: "Data: #{Map.get(content, "format", "")}"
+
   def to_text(%DisplayMessage{content_type: "notification", content: %{"text" => text}}), do: text
   def to_text(%DisplayMessage{content_type: "error", content: %{"text" => text}}), do: text
+
   def to_text(%DisplayMessage{
         content_type: "tool_call",
         content: %{"name" => name, "arguments" => args}
       }) do
     "Tool call: #{name}(#{inspect(args)})"
   end
+
   def to_text(%DisplayMessage{
         content_type: "tool_result",
         content: %{"name" => name, "content" => content}

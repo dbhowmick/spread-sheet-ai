@@ -45,3 +45,6 @@ npm-debug.log
 /frontend/dist/
 /frontend/.vite/
 /priv/static/assets/
+
+# Local secrets (OPENROUTER_API_KEY), loaded by ReqLLM in dev.
+/.env

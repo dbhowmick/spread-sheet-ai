@@ -34,6 +34,12 @@ config :spread_sheet_ai, :sheets,
   read_max_rows: 10,
   write_max_cells: 50
 
+# Agents talk to a scripted model, never a real one (docs/backend-plan.md §11).
+config :spread_sheet_ai, :ai, chat_model_builder: SpreadSheetAi.Test.ScriptedChatModel
+
+# Never pick up a real API key from a local .env.
+config :req_llm, load_dotenv: false
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 

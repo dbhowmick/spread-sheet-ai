@@ -83,6 +83,21 @@ if ai_overrides != [] do
   config :spread_sheet_ai, :ai, ai_overrides
 end
 
+# ReqLLM reads OPENROUTER_API_KEY itself, from the environment or (by
+# default) a `.env` file in the working directory.
+if System.get_env("OPENROUTER_API_KEY") in [nil, ""] do
+  cond do
+    config_env() == :prod ->
+      raise "environment variable OPENROUTER_API_KEY is missing"
+
+    config_env() == :dev and not File.exists?(".env") ->
+      IO.warn("OPENROUTER_API_KEY is not set and there is no .env: the AI copilot will not work")
+
+    true ->
+      :ok
+  end
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

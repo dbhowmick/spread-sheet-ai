@@ -74,6 +74,7 @@ lib/spread_sheet_ai/
   agents/{coordinator,factory,factory_config,factory_router,
           agent_persistence,display_message_persistence,
           agent_subscriber_session}.ex  GENERATED, then adapted (§7)
+  agents/chat_models.ex                 builds the chat models from config (§7.4)
   agents/middleware/sheet_tools.ex      tools + linked-sheet context injection
   agents/tools/*.ex                     one module per tool group (read, structure, rows, cells)
 lib/spread_sheet_ai_web/
@@ -161,6 +162,10 @@ creates.
 
 Links are upserted with `on_conflict`: `last_access` and
 `last_accessed_at` are updated, and `created_here` is OR-ed.
+`Sheets.link/3` writes them. `Sheets.list_links/1` returns a conversation's
+links as contract `LinkedSheet`s, most recently used first. The sagents
+migration and this one are timestamped after the sheet migrations, because
+this one references `sheets`.
 
 **Why this layout.** Rows keep their values as a JSON map keyed by column
 id. So:
@@ -407,7 +412,8 @@ mix sagents.setup SpreadSheetAi.Conversations \
   --pubsub SpreadSheetAi.PubSub --presence SpreadSheetAiWeb.Presence
 ```
 
-Answer **no** to generating the LiveView helpers. Before running it, create
+Answer **no** to generating the LiveView helpers (pipe `n` into the
+command). Before running it, create
 `SpreadSheetAi.Accounts.Scope` (`defstruct [:user]`, `for_user/1`) and
 `SpreadSheetAiWeb.Presence` (`use Phoenix.Presence`).
 
@@ -419,15 +425,24 @@ separate commit, so the diff can be reviewed:
 1. **UUID IDs.** Change `references(:users)` in the migration to
    `type: :binary_id`, and `belongs_to :user … type: :id` in `Conversation`
    to `:binary_id`. The generator assumes integer IDs.
+   - The user FK is `on_delete: :restrict`, as for `sheets.owner_id`: a
+     shared conversation must not disappear with its creator.
+   - The generated tables keep `:utc_datetime_usec` timestamps, because
+     display messages are ordered by `(inserted_at, sequence)`.
+   - The migration is renamed to run after the sheet migrations.
 2. **Shared conversations (CS-1).** Make `scope_query/2` and
    `scope_conversation_query/2` in the generated context return the query
-   unfiltered. Keep `user_id` as the creator, exposed as `created_by`.
+   unfiltered, and drop the owner filter from `search_messages`. Keep
+   `user_id` as the creator, exposed as `created_by`.
 3. **Sender metadata (CS-3).** `DisplayMessagePersistence.save_message`
    ignores `message.metadata`. Copy `"sender_user_id"` into the row's
    `metadata`.
 4. **Title writer (CS-8).** In `AgentPersistence.persist_state`, when
    `context.lifecycle == :on_title_generated`, write the title to
-   `conversations.title`. Remove the per-subscriber title write from
+   `conversations.title` (`Conversations.put_title/3`). The title is in
+   `state_data["state"]["metadata"]["conversation_title"]`, where
+   `ConversationTitle` stores it before that persist. Remove the
+   per-subscriber title write from
    `AgentSubscriberSession.handle_conversation_title_generated`: every
    viewer would otherwise write it.
 5. **Factory model.** Replace the default `ChatAnthropic` (which needs
@@ -438,8 +453,14 @@ separate commit, so the diff can be reviewed:
    - `Summarization`, so long sessions stay within the model's context
    - `SpreadSheetAi.Agents.Middleware.SheetTools`
 
-   Drop TodoList, FileSystem, SubAgent, AskUserQuestion and HumanInTheLoop.
-   Set `base_system_prompt` to the copilot instructions (§8.3).
+   Drop TodoList, FileSystem, SubAgent, AskUserQuestion, HumanInTheLoop and
+   the fallback models. Set `base_system_prompt` to the copilot
+   instructions (§8.3). Phase 6 uses a short interim prompt (role and the
+   `[Name]:` speaker convention). `SheetTools` and the full prompt come in
+   Phase 8.
+
+   `FactoryConfig` and `FactoryRouter` (`use Sagents.Routers.Single`), which
+   the generator also writes, stay as generated.
 7. **Supervision order** in `application.ex`:
    1. Repo
    2. PubSub
@@ -524,9 +545,11 @@ requires.
 
 ### 7.4 Model configuration (OpenRouter)
 
-- **Dependencies:** add `{:sagents, "~> 0.15.1"}` and
-  `{:req_llm, "~> 1.24"}`. `req_llm` is an optional dependency of LangChain,
-  and `ChatReqLLM` only compiles when it is present.
+- **Dependencies:** add `{:sagents, "~> 0.15.1"}`,
+  `{:langchain, "~> 0.14.1"}` and `{:req_llm, "~> 1.24"}`. LangChain is
+  pinned explicitly because we call it directly and Sagents only asks for
+  `>= 0.14.1`. `req_llm` is an optional dependency of LangChain, and
+  `ChatReqLLM` only compiles when it is present.
 - **Config:**
 
   ```elixir
@@ -539,10 +562,15 @@ requires.
   Both models are overridable at runtime via `AI_MODEL` and
   `AI_TITLE_MODEL`.
 - **Where the models are built:** `SpreadSheetAi.Agents.ChatModels.main/0`
-  and `title/0` build `ChatReqLLM.new!(%{model: …, stream: true, max_tokens: …})`.
-  Tests replace them (§11) via `config :spread_sheet_ai, :ai, chat_model_builder: …`.
-- **API key:** ReqLLM reads `OPENROUTER_API_KEY` itself. `runtime.exs` raises
-  in prod if it's missing, and dev logs a warning.
+  builds `ChatReqLLM.new!(%{model: …, stream: true, max_tokens: …})`, and
+  `title/0` the title model with `stream: false`. Tests replace them (§11)
+  via `config :spread_sheet_ai, :ai, chat_model_builder: Module`, a module
+  implementing the `ChatModels` behaviour (`main/0`, `title/0`).
+- **API key:** ReqLLM reads `OPENROUTER_API_KEY` itself, from the
+  environment or from a `.env` file in the working directory, which it
+  loads at startup (`.env` is gitignored). `runtime.exs` raises in prod if
+  the variable is missing, and dev warns when neither it nor `.env` exists.
+  Tests set `config :req_llm, load_dotenv: false`.
 - **Unverified models:** set `config :req_llm, warn_unverified_models: false`,
   since OpenRouter model ids are often missing from ReqLLM's catalog.
 - **Choosing the model:** pick the default during Phase 8, once the tools
@@ -657,7 +685,7 @@ backend.
 | **3. Sheet engine** | `State`, `Op`, `Values`, `Engine` (`create` and all 10 ops) | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) | ✅ 2026-09-20 |
 | **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ✅ 2026-09-20 |
 | **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ✅ 2026-09-20 |
-| **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ⬜ |
+| **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ⬜ (only the manual smoke run is left) |
 | **7. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Scripted-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** | ⬜ |
 | **8. AI tools** → **M3** | SheetTools middleware, 16 tools, system prompt, linking and focus events, choosing the default model (§7.4) | Tool unit tests against a real sheet. A scripted-model test where a tool call changes a sheet: `op_applied` reaches a sheet subscriber, and `focus_sheet` plus `sheets` reach conversation subscribers (AI-1…AI-7, ST-1…ST-3). The default model is recorded in config | ⬜ |
 | **9. Hardening** | A manual end-to-end run with a real model and two browsers, a log review, docs | The four questions in the requirements §1 are answered, and the findings are noted in `docs/` | ⬜ |
@@ -686,8 +714,18 @@ phase 4.
 - **Agent tests with no real model** (NF-4):
   - `SpreadSheetAi.Test.ScriptedChatModel` implements the
     `LangChain.ChatModels.ChatModel` behaviour. It returns queued, scripted
-    responses (text, or tool calls) and reports deltas to the callbacks.
-  - It's injected through the `chat_model_builder` config.
+    responses (text, tool calls, errors, or a function of the messages) and
+    streams text as deltas through the callbacks.
+  - It has two queues, `:main` and `:title`, so the title task, which runs
+    alongside the first call, never takes the agent's replies. An empty
+    title queue answers `"Scripted title"`. `calls/1` records what each
+    call received.
+  - It's injected through the `chat_model_builder` config. Tests start it
+    with `start_supervised!`, so agent tests are `async: false`.
+  - `ConversationsFixtures.start_agent!/2` starts an agent with the test
+    subscribed, waits for its startup `:idle`, and stops it `on_exit`
+    before the sandbox owner. A run is over at the next `:running` →
+    `:idle`.
   - Sagents ships no fake model, which is why we write our own.
   - If the behaviour turns out to be impractical to implement, fall back to
     stubbing `ReqLLM.stream_text` with Mimic, as the Sagents guides do.
@@ -707,3 +745,4 @@ phase 4.
 | A turn in progress is lost if the node crashes (Sagents persists state only at lifecycle points) | Accepted for the POC. Messages already written stay visible |
 | The agent stops after 10 minutes idle even while people are viewing | Harmless: the next `send_message` restarts it from persisted state. Optionally call `AgentServer.touch/1` while viewers are present |
 | The generated code differs from app conventions (Repo calls in generated modules) | Accepted inside the generated `conversations/` and `agents/` namespaces. Our own code follows the conventions |
+| Sagents 0.15.1 updates an agent's presence before tracking it, logging a harmless `:nopresence` warning on every agent start | Ignored. Agent tests use `@moduletag :capture_log` |

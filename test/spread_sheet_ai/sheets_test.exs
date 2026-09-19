@@ -3,10 +3,21 @@ defmodule SpreadSheetAi.SheetsTest do
   use SpreadSheetAi.DataCase, async: false
 
   import SpreadSheetAi.AuthFixtures
+  import SpreadSheetAi.ConversationsFixtures
   import SpreadSheetAi.SheetsFixtures
 
+  alias SpreadSheetAi.Conversations
   alias SpreadSheetAi.Sheets
-  alias SpreadSheetAi.Sheets.{Actor, ChangeQueries, Op, Runtime, SheetQueries}
+
+  alias SpreadSheetAi.Sheets.{
+    Actor,
+    ChangeQueries,
+    ConversationSheet,
+    ConversationSheetQueries,
+    Op,
+    Runtime,
+    SheetQueries
+  }
 
   setup do
     owner = verified_user_fixture()
@@ -208,6 +219,112 @@ defmodule SpreadSheetAi.SheetsTest do
   defp parse!(op_map) do
     {:ok, op} = Op.parse(op_map)
     op
+  end
+
+  describe "link/3" do
+    setup %{owner: owner}, do: %{conversation: conversation_fixture(owner)}
+
+    test "the first link inserts one row per pair", %{sheet: sheet, conversation: conversation} do
+      assert {:ok, %ConversationSheet{} = link} = Sheets.link(conversation.id, sheet.id, :opened)
+
+      assert %{created_here: false, last_access: "opened"} = link
+      assert link.first_accessed_at == link.last_accessed_at
+
+      assert {:ok, %{created_here: true, last_access: "created"}} =
+               Sheets.link(conversation_fixture().id, sheet.id, :created)
+    end
+
+    test "a repeat link updates the last access and keeps the first", %{
+      sheet: sheet,
+      conversation: conversation
+    } do
+      {:ok, first} = Sheets.link(conversation.id, sheet.id, :opened)
+
+      backdated = DateTime.add(first.first_accessed_at, -60)
+
+      Repo.update_all(ConversationSheetQueries.for_conversation(conversation.id),
+        set: [first_accessed_at: backdated, last_accessed_at: backdated]
+      )
+
+      assert {:ok, link} = Sheets.link(conversation.id, sheet.id, :written)
+      assert link.id == first.id
+      assert %{last_access: "written", first_accessed_at: ^backdated} = link
+      assert DateTime.after?(link.last_accessed_at, backdated)
+
+      assert Repo.aggregate(ConversationSheetQueries.for_conversation(conversation.id), :count) ==
+               1
+    end
+
+    test "created_here stays true once set", %{sheet: sheet, conversation: conversation} do
+      {:ok, _link} = Sheets.link(conversation.id, sheet.id, :created)
+
+      assert {:ok, %{created_here: true, last_access: "read"}} =
+               Sheets.link(conversation.id, sheet.id, :read)
+
+      other = created_sheet_fixture()
+      {:ok, _link} = Sheets.link(conversation.id, other.id, :opened)
+      assert {:ok, %{created_here: true}} = Sheets.link(conversation.id, other.id, :created)
+    end
+
+    test "an unknown or malformed id is not_found", %{sheet: sheet, conversation: conversation} do
+      unknown = Ecto.UUID.generate()
+
+      assert {:error, :not_found, "sheet not found", %{sheet_id: ^unknown}} =
+               Sheets.link(conversation.id, unknown, :read)
+
+      assert {:error, :not_found, "conversation not found", _meta} =
+               Sheets.link(unknown, sheet.id, :read)
+
+      assert {:error, :not_found, _message, %{sheet_id: "nope"}} =
+               Sheets.link(conversation.id, "nope", :read)
+
+      assert {:error, :invalid_op, _message, _meta} =
+               Sheets.link(conversation.id, sheet.id, :deleted)
+    end
+
+    test "deleting the conversation deletes its links", %{
+      sheet: sheet,
+      conversation: conversation
+    } do
+      {:ok, _link} = Sheets.link(conversation.id, sheet.id, :opened)
+      {:ok, _conversation} = Conversations.delete_conversation(conversation)
+
+      assert Sheets.list_links(conversation.id) == []
+    end
+
+    test "list_links/1 returns LinkedSheets, most recently used first", %{
+      sheet: sheet,
+      owner: owner,
+      conversation: conversation
+    } do
+      other = created_sheet_fixture(%{"name" => "Other"})
+      {:ok, older} = Sheets.link(conversation.id, sheet.id, :created)
+
+      Repo.update_all(ConversationSheetQueries.for_conversation(conversation.id),
+        set: [last_accessed_at: DateTime.add(older.last_accessed_at, -60)]
+      )
+
+      {:ok, _link} = Sheets.link(conversation.id, other.id, :read)
+
+      assert [first, second] = Sheets.list_links(conversation.id)
+      assert %{sheet: %{id: other_id}, last_access: "read", created_here: false} = first
+      assert other_id == other.id
+
+      assert %{created_here: true, last_access: "created", sheet: summary} = second
+
+      assert summary == %{
+               id: sheet.id,
+               name: sheet.name,
+               owner: %{id: owner.id, display_name: owner.display_name},
+               version: 1,
+               row_count: 2,
+               column_count: 2,
+               inserted_at: sheet.inserted_at,
+               updated_at: sheet.updated_at
+             }
+
+      assert Sheets.list_links("nope") == []
+    end
   end
 
   defp changes(sheet_id),

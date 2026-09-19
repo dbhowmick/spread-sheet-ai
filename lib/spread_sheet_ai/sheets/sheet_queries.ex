@@ -9,6 +9,10 @@ defmodule SpreadSheetAi.Sheets.SheetQueries do
     where(query, [s], s.id == ^id)
   end
 
+  def by_ids(query \\ Sheet, ids) do
+    where(query, [s], s.id in ^ids)
+  end
+
   def with_version(query \\ Sheet, version) do
     where(query, [s], s.version == ^version)
   end

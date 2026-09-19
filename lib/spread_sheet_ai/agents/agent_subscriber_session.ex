@@ -38,15 +38,13 @@ defmodule SpreadSheetAi.Agents.AgentSubscriberSession do
   See `handle_hitl_decision/3` and `handle_question_response/2`.
   """
 
-  alias SpreadSheetAi.Conversations
-  alias SpreadSheetAi.Agents.Coordinator
+  alias LangChain.MessageDelta
   alias Sagents.AgentUtils
   alias Sagents.StreamingSession
   alias Sagents.Subscriber
   alias Sagents.ViewerPresence
-  alias LangChain.MessageDelta
-
-  require Logger
+  alias SpreadSheetAi.Agents.Coordinator
+  alias SpreadSheetAi.Conversations
 
   # ===========================================================================
   # Default state
@@ -267,9 +265,13 @@ defmodule SpreadSheetAi.Agents.AgentSubscriberSession do
   # ===========================================================================
 
   @doc """
-  Conversation title generated — write the new title to the DB and return
-  a change with the updated conversation. No-op (returns `%{}`) if the
-  event isn't for our agent or there's no conversation in state.
+  Conversation title generated — return a change with the conversation's new
+  title. No-op (returns `%{}`) if the event isn't for our agent or there's no
+  conversation in state.
+
+  It does not write the title: every viewer of a shared conversation gets
+  this event. `SpreadSheetAi.Agents.AgentPersistence` writes it once, from the
+  agent (CS-8).
   """
   def handle_conversation_title_generated(state, new_title, target_agent_id) do
     cond do
@@ -280,14 +282,7 @@ defmodule SpreadSheetAi.Agents.AgentSubscriberSession do
         %{}
 
       true ->
-        case Conversations.update_conversation(state.conversation, %{title: new_title}) do
-          {:ok, updated_conversation} ->
-            %{conversation: updated_conversation}
-
-          {:error, reason} ->
-            Logger.error("Failed to update conversation title: #{inspect(reason)}")
-            %{}
-        end
+        %{conversation: %{state.conversation | title: new_title}}
     end
   end
 

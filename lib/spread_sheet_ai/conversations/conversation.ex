@@ -12,11 +12,13 @@ defmodule SpreadSheetAi.Conversations.Conversation do
   alias SpreadSheetAi.Conversations.AgentState
   alias SpreadSheetAi.Conversations.DisplayMessage
 
+  @type t :: %__MODULE__{}
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
   schema "sagents_conversations" do
-    belongs_to :user, SpreadSheetAi.Accounts.User, foreign_key: :user_id, type: :id
+    belongs_to :user, SpreadSheetAi.Accounts.User, foreign_key: :user_id, type: :binary_id
     has_one :agent_state, AgentState
     has_many :display_messages, DisplayMessage
 

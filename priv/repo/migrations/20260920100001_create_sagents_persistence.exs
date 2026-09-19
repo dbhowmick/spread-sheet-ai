@@ -5,7 +5,9 @@ defmodule SpreadSheetAi.Repo.Migrations.CreateSagentsPersistence do
     # Conversations table
     create table(:sagents_conversations, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :user_id, references(:users, on_delete: :delete_all), null: false
+      # The creator. Conversations are shared (CS-1), so deleting a user must
+      # not delete them: :restrict, as for sheets.owner_id.
+      add :user_id, references(:users, type: :binary_id, on_delete: :restrict), null: false
       add :title, :string
       add :version, :integer, default: 1, null: false
       add :metadata, :map, default: %{}
@@ -19,7 +21,11 @@ defmodule SpreadSheetAi.Repo.Migrations.CreateSagentsPersistence do
     # Agent states table (one per conversation)
     create table(:sagents_agent_states, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :conversation_id, references(:sagents_conversations, on_delete: :delete_all, type: :binary_id), null: false
+
+      add :conversation_id,
+          references(:sagents_conversations, on_delete: :delete_all, type: :binary_id),
+          null: false
+
       add :state_data, :map, null: false
       add :version, :integer, null: false
 
@@ -31,7 +37,11 @@ defmodule SpreadSheetAi.Repo.Migrations.CreateSagentsPersistence do
     # Display messages table (multi-content type support)
     create table(:sagents_display_messages, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :conversation_id, references(:sagents_conversations, on_delete: :delete_all, type: :binary_id), null: false
+
+      add :conversation_id,
+          references(:sagents_conversations, on_delete: :delete_all, type: :binary_id),
+          null: false
+
       # "user", "assistant", "tool", "system"
       add :message_type, :string, null: false
       # JSONB storage for flexible content

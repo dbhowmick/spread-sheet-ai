@@ -16,7 +16,18 @@ defmodule SpreadSheetAi.Sheets do
 
   alias SpreadSheetAi.Accounts.User
   alias SpreadSheetAi.Repo
-  alias SpreadSheetAi.Sheets.{Actor, Engine, Op, Persister, Runtime, SheetQueries, State}
+
+  alias SpreadSheetAi.Sheets.{
+    Actor,
+    ConversationSheet,
+    ConversationSheetQueries,
+    Engine,
+    Op,
+    Persister,
+    Runtime,
+    SheetQueries,
+    State
+  }
 
   @type error :: {:error, atom(), String.t(), map()}
 
@@ -31,6 +42,18 @@ defmodule SpreadSheetAi.Sheets do
           updated_at: DateTime.t()
         }
 
+  @type access_kind :: :created | :opened | :read | :written
+
+  @type linked_sheet :: %{
+          sheet: summary(),
+          created_here: boolean(),
+          last_access: String.t(),
+          first_accessed_at: DateTime.t(),
+          last_accessed_at: DateTime.t()
+        }
+
+  @access_kinds [:created, :opened, :read, :written]
+
   @doc """
   Every sheet (all signed-in users see all sheets), most recently updated
   first, with its owner and row and column counts. Read from Postgres; no
@@ -42,18 +65,7 @@ defmodule SpreadSheetAi.Sheets do
     |> SheetQueries.with_owner()
     |> SheetQueries.with_counts()
     |> Repo.all()
-    |> Enum.map(fn %{sheet: sheet, row_count: row_count, column_count: column_count} ->
-      %{
-        id: sheet.id,
-        name: sheet.name,
-        owner: State.owner(sheet.owner),
-        version: sheet.version,
-        row_count: row_count,
-        column_count: column_count,
-        inserted_at: sheet.inserted_at,
-        updated_at: sheet.updated_at
-      }
-    end)
+    |> Enum.map(&summary/1)
   end
 
   @doc """
@@ -128,10 +140,122 @@ defmodule SpreadSheetAi.Sheets do
   end
 
   # A malformed id can't name a sheet, so no server is started for it.
+  @doc """
+  Records that a conversation used a sheet (ST-1). `kind` is how:
+  `:created`, `:opened`, `:read` or `:written`. The first link for a pair
+  inserts it; later ones update `last_access` and `last_accessed_at`, keep
+  `first_accessed_at`, and keep `created_here` once it is true.
+
+  An unknown or malformed conversation or sheet id is `not_found`.
+  """
+  @spec link(String.t(), String.t(), access_kind()) :: {:ok, ConversationSheet.t()} | error()
+  def link(conversation_id, sheet_id, kind) when kind in @access_kinds do
+    with {:ok, conversation_id} <- cast_id(conversation_id, :conversation_id),
+         {:ok, sheet_id} <- cast_id(sheet_id, :sheet_id) do
+      now = DateTime.utc_now(:second)
+
+      %ConversationSheet{}
+      |> ConversationSheet.changeset(%{
+        conversation_id: conversation_id,
+        sheet_id: sheet_id,
+        created_here: kind == :created,
+        last_access: Atom.to_string(kind),
+        first_accessed_at: now,
+        last_accessed_at: now
+      })
+      |> Repo.insert(
+        on_conflict: ConversationSheetQueries.relink(),
+        conflict_target: [:conversation_id, :sheet_id],
+        returning: true
+      )
+      |> case do
+        {:ok, link} -> {:ok, link}
+        {:error, changeset} -> link_error(changeset, conversation_id, sheet_id)
+      end
+    end
+  end
+
+  def link(_conversation_id, _sheet_id, kind),
+    do: {:error, :invalid_op, "unknown access kind #{inspect(kind)}", %{}}
+
+  @doc """
+  The sheets a conversation has used, most recently used first, as
+  `LinkedSheet`s (contract §2.9) with each sheet's summary.
+  """
+  @spec list_links(String.t()) :: [linked_sheet()]
+  def list_links(conversation_id) do
+    case Ecto.UUID.cast(conversation_id) do
+      {:ok, conversation_id} ->
+        links =
+          ConversationSheetQueries.for_conversation(conversation_id)
+          |> ConversationSheetQueries.recent_first()
+          |> Repo.all()
+
+        summaries =
+          SheetQueries.by_ids(Enum.map(links, & &1.sheet_id))
+          |> SheetQueries.with_owner()
+          |> SheetQueries.with_counts()
+          |> Repo.all()
+          |> Map.new(&{&1.sheet.id, summary(&1)})
+
+        Enum.map(links, fn link ->
+          %{
+            sheet: Map.fetch!(summaries, link.sheet_id),
+            created_here: link.created_here,
+            last_access: link.last_access,
+            first_accessed_at: link.first_accessed_at,
+            last_accessed_at: link.last_accessed_at
+          }
+        end)
+
+      :error ->
+        []
+    end
+  end
+
+  defp summary(%{sheet: sheet, row_count: row_count, column_count: column_count}) do
+    %{
+      id: sheet.id,
+      name: sheet.name,
+      owner: State.owner(sheet.owner),
+      version: sheet.version,
+      row_count: row_count,
+      column_count: column_count,
+      inserted_at: sheet.inserted_at,
+      updated_at: sheet.updated_at
+    }
+  end
+
+  defp cast_id(id, field) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      :error -> not_found(field, id)
+    end
+  end
+
+  defp link_error(changeset, conversation_id, sheet_id) do
+    cond do
+      Keyword.has_key?(changeset.errors, :conversation_id) ->
+        not_found(:conversation_id, conversation_id)
+
+      Keyword.has_key?(changeset.errors, :sheet_id) ->
+        not_found(:sheet_id, sheet_id)
+
+      true ->
+        {:error, :internal_error, "could not link the sheet",
+         %{errors: inspect(changeset.errors)}}
+    end
+  end
+
+  defp not_found(:conversation_id, id),
+    do: {:error, :not_found, "conversation not found", %{conversation_id: id}}
+
+  defp not_found(:sheet_id, id), do: {:error, :not_found, "sheet not found", %{sheet_id: id}}
+
   defp call(sheet_id, request) do
     case Ecto.UUID.cast(sheet_id) do
       {:ok, id} -> Runtime.call(id, request)
-      :error -> {:error, :not_found, "sheet not found", %{sheet_id: sheet_id}}
+      :error -> not_found(:sheet_id, sheet_id)
     end
   end
 end

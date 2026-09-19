@@ -16,6 +16,9 @@ defmodule SpreadSheetAi.Application do
       # One SpreadSheetAi.Sheets.Server per open sheet, looked up by sheet id.
       {Registry, keys: :unique, name: SpreadSheetAi.Sheets.Registry},
       {DynamicSupervisor, name: SpreadSheetAi.Sheets.ServerSupervisor, strategy: :one_for_one},
+      # Conversation agents. After Repo and PubSub so agents can persist and
+      # broadcast while shutting down, and before the Endpoint.
+      Sagents.Supervisor,
       {Oban, Application.fetch_env!(:spread_sheet_ai, Oban)},
       # Start a worker by calling: SpreadSheetAi.Worker.start_link(arg)
       # {SpreadSheetAi.Worker, arg},
