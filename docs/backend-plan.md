@@ -66,6 +66,7 @@ lib/spread_sheet_ai/
   sheets/op.ex                          parse and validate op maps into typed structs
   sheets/values.ex                      casting and type conversion per column_type
   sheets/reads.ex                       pure reads over State (describe, read_rows, read_cells, find_rows)
+  sheets/named.ex                       pure: name-based op (labels, column names) -> Op, for the AI tools
   sheets/engine.ex                      pure: apply(State, Op) -> {:ok, State, AppliedOp, effects} | {:error, …}
   sheets/persister.ex                   effects -> Ecto.Multi (+ version bump + change log)
   sheets/server.ex                      GenServer per sheet (idle stop)
@@ -77,7 +78,8 @@ lib/spread_sheet_ai/
   agents/chat_models.ex                 builds the chat models from config (§7.4)
   agents/chat.ex                        send_message / cancel / status for the channel (§7.3)
   agents/middleware/sheet_tools.ex      tools + linked-sheet context injection
-  agents/tools/*.ex                     one module per tool group (read, structure, rows, cells)
+  agents/tools/*.ex                     one module per tool group (read, structure, rows, cells),
+                                        plus support.ex (argument checks, ERROR text, links, actor)
 lib/spread_sheet_ai_web/
   presence.ex
   channels/user_socket.ex
@@ -300,7 +302,12 @@ under the DynamicSupervisor `SpreadSheetAi.Sheets.ServerSupervisor`.
      `{:op_applied, %{sheet_id, version, applied_op, actor, client_op_id}}`
      on PubSub topic `"sheet_events:<id>"`, and replies
      `{:ok, version, applied_op}`.
-  4. If the Persister returns an error, the server replies
+  4. `apply_named(sheet_id, named_op, actor, opts)` is the same call for
+     the AI tools' name-based ops: `Sheets.Named.resolve/2` turns labels
+     and column names into ids inside the server, against the state the op
+     is applied to, so a name can't change meaning between lookup and
+     write. `Named` never raises; malformed input is `invalid_op`.
+  5. If the Persister returns an error, the server replies
      `{:error, :internal_error, …}` and **stops** with
      `{:shutdown, :persist_failed}`, so the next call reloads a fresh
      state from Postgres. An exception crashes the server, and the
@@ -630,18 +637,26 @@ each run:
 - It loads the `conversation_sheets` for `state.conversation_id`.
 - It renders a delimited `<linked_sheets>` block listing each sheet's id,
   name, columns with their types, and row count. It includes no values.
-- **First choice:** rewrite the dedicated system-message block in
-  `state.messages`, so the context doesn't pile up.
-- **Fallback, if Sagents doesn't allow that:** prepend the block to the
-  latest user message, as the Sagents middleware guide documents. In that
-  case older blocks stay in the history, and Summarization handles long
-  sessions.
-- **Deciding which:** a spike at the start of Phase 8 settles it.
+- It prepends the block, as its own content part, to the latest user
+  message. Older blocks stay in the history, and Summarization handles
+  long sessions.
+
+**Phase 8 spike result.** Rewriting a system-message block isn't possible
+in Sagents 0.15.1:
+- The system prompt (`base_system_prompt` plus each middleware's
+  `system_prompt/1`) is assembled once, in `Agent.new`.
+- The chain adds the system message at run time; it isn't in
+  `state.messages`. A second system message added in `before_model` makes
+  `split_system_message` raise, and the run fails.
+- `before_model` runs once per `execute`, not before every model call in
+  the tool loop. The block is therefore as of the start of the run, and
+  tools return the structures they change.
 
 ### 8.2 Tools
 
 Tools refer to sheets by id, rows by label and columns by name. The
-`Sheets` API converts those to ids.
+`Sheets` API converts those to ids: reads take names, and writes go through
+`Sheets.apply_named/4` (§5).
 
 | Tool | Arguments | Result (JSON text) |
 |---|---|---|
@@ -680,8 +695,16 @@ Existing columns: Line item, Q1, Q2.
 ```
 
 Argument definitions are strict: required fields, enum `type`, and
-`additionalProperties: false`. Tool modules rescue nothing on purpose,
-because LangChain already turns exceptions into error results.
+`additionalProperties: false`. The provider-level `strict: true` flag is
+not set, because OpenAI-style strict mode forbids the free-form
+`values: {column: value}` maps. LangChain only checks that required keys
+are present, so each tool also checks its arguments' types before calling
+`Sheets` and answers `ERROR invalid_arguments: …`. Tool modules rescue
+nothing on purpose, because LangChain already turns exceptions into error
+results.
+
+A sheet created by `create_sheet` is owned by the conversation's creator
+(T-1), and every change is made as `Actor.agent(conversation_id, title)`.
 
 ### 8.3 System prompt
 

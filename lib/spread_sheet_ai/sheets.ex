@@ -101,6 +101,18 @@ defmodule SpreadSheetAi.Sheets do
     call(sheet_id, {:apply, op, actor, Keyword.take(opts, [:client_op_id])})
   end
 
+  @doc """
+  Applies a name-based op (`SpreadSheetAi.Sheets.Named`), as the AI tools
+  write it, to a sheet as `actor`. The names are resolved inside the sheet
+  server, against the state the op is applied to. Returns what
+  `apply_op/4` returns.
+  """
+  @spec apply_named(String.t(), map(), Actor.t(), keyword()) ::
+          {:ok, pos_integer(), map()} | error()
+  def apply_named(sheet_id, named_op, %Actor{} = actor, opts \\ []) do
+    call(sheet_id, {:apply_named, named_op, actor, Keyword.take(opts, [:client_op_id])})
+  end
+
   @doc "The sheet's full in-memory state."
   @spec snapshot(String.t()) :: {:ok, State.t()} | error()
   def snapshot(sheet_id), do: call(sheet_id, :snapshot)

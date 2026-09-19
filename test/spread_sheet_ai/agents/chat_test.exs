@@ -118,7 +118,13 @@ defmodule SpreadSheetAi.Agents.ChatTest do
 
   defp session(conversation), do: %{conversation_id: conversation.id, sagents_subs: %{}}
 
-  defp text(message), do: ContentPart.parts_to_string(message.content)
+  # The message's own text, without the `<linked_sheets>` block SheetTools
+  # puts in front of the latest user message.
+  defp text(message) do
+    message.content
+    |> Enum.reject(&String.starts_with?(&1.content, "<linked_sheets>"))
+    |> ContentPart.parts_to_string()
+  end
 
   defp queued_adds(pid) do
     {:messages, messages} = Process.info(pid, :messages)

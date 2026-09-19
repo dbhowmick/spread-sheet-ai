@@ -24,6 +24,18 @@ defmodule SpreadSheetAi.ConversationsFixtures do
   end
 
   @doc """
+  The tool context Sagents passes to a tool function running in the
+  conversation's agent, for calling tools directly.
+  """
+  def tool_context(conversation, user) do
+    %{
+      conversation_id: conversation.id,
+      agent_id: Coordinator.conversation_agent_id(conversation.id),
+      scope: Scope.for_user(user)
+    }
+  end
+
+  @doc """
   Stops the conversation's agent when the test exits, before the sandbox
   owner does. For agents that something else (a channel) starts.
   Returns the conversation.

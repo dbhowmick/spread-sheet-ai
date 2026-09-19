@@ -113,7 +113,9 @@ defmodule SpreadSheetAi.Sheets.Reads do
     end
   end
 
-  defp fetch_column(state, name) do
+  @doc "Finds a column by name (trimmed, case-insensitive), or `unknown_column`."
+  @spec fetch_column(State.t(), String.t()) :: {:ok, State.column()} | error()
+  def fetch_column(%State{} = state, name) do
     case State.fetch_column_by_name(state, name) do
       {:ok, column} ->
         {:ok, column}
@@ -124,7 +126,9 @@ defmodule SpreadSheetAi.Sheets.Reads do
     end
   end
 
-  defp fetch_row(state, label) do
+  @doc "Finds a row by label (trimmed, case-insensitive), or `unknown_row`."
+  @spec fetch_row(State.t(), String.t()) :: {:ok, State.row()} | error()
+  def fetch_row(%State{} = state, label) do
     case State.fetch_row_by_label(state, label) do
       {:ok, row} ->
         {:ok, row}

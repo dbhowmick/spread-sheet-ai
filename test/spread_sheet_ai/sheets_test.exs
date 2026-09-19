@@ -128,6 +128,46 @@ defmodule SpreadSheetAi.SheetsTest do
     end
   end
 
+  describe "apply_named/4" do
+    test "resolves names in the server, then persists and broadcasts", %{
+      sheet: sheet,
+      actor: actor
+    } do
+      :ok = Sheets.subscribe(sheet.id)
+
+      named = %{
+        "type" => "set_cells",
+        "cells" => [%{"row" => "revenue", "column" => "q1", "value" => 1500}]
+      }
+
+      assert {:ok, 2, %{"type" => "set_cells", "cells" => [%{"value" => 1500}]} = applied} =
+               Sheets.apply_named(sheet.id, named, actor)
+
+      assert_receive {:op_applied, %{version: 2, applied_op: ^applied, actor: ^actor}}
+
+      assert {:ok, %{"Revenue" => %{"Q1" => 1500}}} =
+               Sheets.read_cells(sheet.id, ["Revenue"], ["Q1"])
+    end
+
+    test "unknown names and malformed ops are errors, and the server lives on", %{
+      sheet: sheet,
+      actor: actor
+    } do
+      {:ok, pid} = Runtime.ensure_started(sheet.id)
+
+      assert {:error, :unknown_column, _, %{column: "Q9"}} =
+               Sheets.apply_named(sheet.id, %{"type" => "delete_column", "column" => "Q9"}, actor)
+
+      assert {:error, :invalid_op, _, _} =
+               Sheets.apply_named(sheet.id, %{"type" => "delete_rows", "labels" => [1]}, actor)
+
+      assert {:error, :invalid_op, _, _} = Sheets.apply_named(sheet.id, :garbage, actor)
+
+      assert {:ok, ^pid} = Runtime.ensure_started(sheet.id)
+      assert {:ok, %{version: 1}} = Sheets.snapshot(sheet.id)
+    end
+  end
+
   describe "the sheet server" do
     test "rebuilds the same state after being killed (P-5)", %{sheet: sheet, actor: actor} do
       {:ok, 2, _} = Sheets.apply_op(sheet.id, rename("Budget"), actor)

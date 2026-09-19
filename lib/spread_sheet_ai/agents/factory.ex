@@ -9,10 +9,11 @@ defmodule SpreadSheetAi.Agents.Factory do
 
   - models from `SpreadSheetAi.Agents.ChatModels` (OpenRouter by default,
     a scripted model in tests), with no fallback models;
-  - middleware: `ConversationTitle`, `Summarization` and `PatchToolCalls`.
-    `SpreadSheetAi.Agents.Middleware.SheetTools` joins them in Phase 8.
-    There is no filesystem, todo list, sub-agents, questions or
-    human-in-the-loop.
+  - middleware: `ConversationTitle`, `Summarization`, `PatchToolCalls` and
+    `SpreadSheetAi.Agents.Middleware.SheetTools` (the sheet tools and the
+    `<linked_sheets>` context). There is no filesystem, todo list,
+    sub-agents, questions or human-in-the-loop;
+  - the copilot instructions of backend-plan §8.3 as the system prompt.
 
   Pairs with `SpreadSheetAi.Agents.FactoryConfig`, which says what a config
   holds and how to build one.
@@ -22,6 +23,7 @@ defmodule SpreadSheetAi.Agents.Factory do
   alias Sagents.Middleware.ConversationTitle
   alias SpreadSheetAi.Agents.ChatModels
   alias SpreadSheetAi.Agents.FactoryConfig
+  alias SpreadSheetAi.Agents.Middleware.SheetTools
 
   @doc """
   Builds a `%Sagents.Agent{}` from the supplied config.
@@ -51,16 +53,38 @@ defmodule SpreadSheetAi.Agents.Factory do
     end
   end
 
-  # An interim prompt. The full copilot instructions (§8.3) come with the
-  # sheet tools in Phase 8.
   defp base_system_prompt(%FactoryConfig{} = _c) do
     """
     You are a spreadsheet copilot. You help a team plan and analyse the data in
-    their sheets.
+    their sheets by reading and changing them with your tools.
 
-    Several people may be talking to you in the same conversation. Each user
-    message begins with the sender's name in square brackets, like
+    Speakers: several people may be talking to you in the same conversation.
+    Each user message begins with the sender's name in square brackets, like
     "[Alice]: ...". Address people by name when it helps.
+
+    Sheets: a sheet has one line-item column (text) that labels each row, and
+    other columns of type text, number, boolean or date. Tools name rows by
+    their label and columns by their name. The sheets this conversation uses
+    are listed in the <linked_sheets> block at the start of the latest user
+    message, with their ids, columns and row counts. Only work with those
+    sheets, or with sheets you find through list_sheets and open with
+    open_sheet. Create a new sheet with create_sheet only when asked to.
+
+    Reading: <linked_sheets> holds no values. Read values with read_rows,
+    read_cells or find_rows, and never guess them. Keep reads small: read only
+    the rows and columns you need.
+
+    Writing: prefer one set_cells or add_rows call with many values over many
+    small calls. create_sheet can add columns and rows in the same call.
+    Values are literals of the column's type: numbers as numbers, booleans as
+    true or false, dates as YYYY-MM-DD, and null to clear a cell. Formulas are
+    not supported: compute results yourself and write the values.
+
+    Errors: a tool result that starts with ERROR means nothing was changed. Read
+    it, fix the arguments (it often lists the valid names), and call the tool
+    again. Don't give up after one error.
+
+    After changing a sheet, say briefly what you changed.
     """
   end
 
@@ -75,7 +99,10 @@ defmodule SpreadSheetAi.Agents.Factory do
       Sagents.Middleware.Summarization,
 
       # Fix dangling tool calls from interrupted conversations.
-      Sagents.Middleware.PatchToolCalls
+      Sagents.Middleware.PatchToolCalls,
+
+      # The sheet tools, and the linked sheets at the start of each run.
+      SheetTools
     ]
   end
 end

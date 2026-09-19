@@ -51,9 +51,18 @@ defmodule SpreadSheetAi.Agents.AgentTest do
 
       assert %{message_type: "assistant", content: %{"text" => "Hello Alice!"}} = reply
 
-      # The model saw the sender-prefixed text.
-      assert [{messages, []}] = ScriptedChatModel.calls()
-      assert Message.ContentPart.parts_to_string(List.last(messages).content) == "[Alice]: hi"
+      # The model saw the sheet tools, and the sender-prefixed text after the
+      # linked sheets.
+      assert [{messages, tools}] = ScriptedChatModel.calls()
+
+      assert Enum.map(tools, & &1.name) |> Enum.sort() ==
+               ~w(add_column add_rows change_column_type create_sheet delete_column delete_rows
+                  find_rows list_sheets move_column move_row open_sheet read_cells read_rows
+                  rename_column rename_sheet set_cells)
+
+      assert [linked_sheets, said] = List.last(messages).content
+      assert linked_sheets.content =~ ~r/^<linked_sheets>\nNo sheets are linked/
+      assert said.content == "[Alice]: hi"
     end
 
     test "writes the generated title to the conversation", %{

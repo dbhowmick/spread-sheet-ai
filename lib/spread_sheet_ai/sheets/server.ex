@@ -27,7 +27,8 @@ defmodule SpreadSheetAi.Sheets.Server do
 
   alias SpreadSheetAi.Repo
   alias SpreadSheetAi.Sheets
-  alias SpreadSheetAi.Sheets.{ColumnQueries, Engine, Persister, Reads, RowQueries, Runtime}
+  alias SpreadSheetAi.Sheets.{ColumnQueries, Engine, Named, Persister, Reads, RowQueries}
+  alias SpreadSheetAi.Sheets.Runtime
   alias SpreadSheetAi.Sheets.{SheetQueries, State}
 
   @doc "Options: `:sheet_id` (required), `:idle_timeout` and `:limits` (default from config)."
@@ -61,13 +62,14 @@ defmodule SpreadSheetAi.Sheets.Server do
     {:stop, {:shutdown, :not_found}, error, data}
   end
 
-  def handle_call({:apply, op, actor, opts}, _from, data) do
-    case Engine.apply(data.state, op, data.limits) do
-      {:ok, new_state, applied_op, effects} ->
-        persist(data, new_state, applied_op, effects, actor, opts)
+  def handle_call({:apply, op, actor, opts}, _from, data), do: apply_op(data, op, actor, opts)
 
-      {:error, _code, _message, _meta} = error ->
-        reply(error, data)
+  # Names are resolved against the state the op is applied to, so a label
+  # or column name can't change meaning between lookup and write.
+  def handle_call({:apply_named, named_op, actor, opts}, _from, data) do
+    case Named.resolve(data.state, named_op) do
+      {:ok, op} -> apply_op(data, op, actor, opts)
+      {:error, _code, _message, _meta} = error -> reply(error, data)
     end
   end
 
@@ -87,6 +89,16 @@ defmodule SpreadSheetAi.Sheets.Server do
   @impl GenServer
   def handle_info(:timeout, data), do: {:stop, :normal, data}
   def handle_info(_message, data), do: {:noreply, data, data.idle_timeout}
+
+  defp apply_op(data, op, actor, opts) do
+    case Engine.apply(data.state, op, data.limits) do
+      {:ok, new_state, applied_op, effects} ->
+        persist(data, new_state, applied_op, effects, actor, opts)
+
+      {:error, _code, _message, _meta} = error ->
+        reply(error, data)
+    end
+  end
 
   defp persist(data, new_state, applied_op, effects, actor, opts) do
     case Persister.apply(data.sheet_id, new_state.version, effects, applied_op, actor, opts) do

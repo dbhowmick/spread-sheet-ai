@@ -304,6 +304,137 @@ defmodule SpreadSheetAiWeb.ConversationChannelTest do
     end
   end
 
+  describe "AI tools" do
+    setup %{alice: alice, conversation: conversation} do
+      sheet =
+        created_sheet_fixture(%{
+          "name" => "P&L",
+          "columns" => [%{"name" => "Q1", "column_type" => "number"}],
+          "rows" => [%{"label" => "Revenue", "values" => %{"Q1" => 1234}}],
+          owner: alice
+        })
+
+      {:ok, _link} = Sheets.link(conversation.id, sheet.id, :opened)
+      %{sheet: sheet}
+    end
+
+    test "a tool call changes the sheet, and every viewer sees it (AI-1, AI-6, AI-7, UI-4)", %{
+      alice: alice,
+      bob: bob,
+      conversation: conversation,
+      sheet: sheet
+    } do
+      set_q1 = %{
+        name: "set_cells",
+        arguments: %{
+          "sheet_id" => sheet.id,
+          "cells" => [%{"row" => "Revenue", "column" => "Q1", "value" => 1500}]
+        }
+      }
+
+      ScriptedChatModel.push([{:tool_calls, [set_q1]}, "Done."])
+
+      {:ok, _, socket} = join_as(alice, conversation.id)
+      {:ok, bob_socket} = connect_user(bob)
+
+      {:ok, _, sheet_socket} =
+        subscribe_and_join(bob_socket, SpreadSheetAiWeb.SheetChannel, "sheet:#{sheet.id}")
+
+      assert_reply push(socket, "send_message", %{"text" => "Set Q1 revenue to 1500"}),
+                   :ok,
+                   %{},
+                   2_000
+
+      conversation_id = conversation.id
+
+      # The change reaches the sheet's viewers as the conversation's (AI-6).
+      assert_pushed(sheet_socket, "op_applied", %{
+        version: 2,
+        op: %{"type" => "set_cells"},
+        actor: %{type: "agent", conversation_id: ^conversation_id}
+      })
+
+      pushes = pushes_until_run_end(socket)
+      events = Enum.map(pushes, &elem(&1, 0))
+
+      assert {"tool_status", %{name: "set_cells", display_text: "Updating cells"}} =
+               Enum.find(pushes, &match?({"tool_status", _}, &1))
+
+      # The sheet is focused and the links reloaded before the tool's result
+      # is shown (contract §7.3).
+      focus = Enum.find_index(pushes, &match?({"focus_sheet", _}, &1))
+      links = Enum.find_index(pushes, &match?({"sheets", _}, &1))
+      result = Enum.find_index(pushes, &tool_result?/1)
+      assert focus < links and links < result, "pushes out of order: #{inspect(events)}"
+
+      sheet_id = sheet.id
+      assert {"focus_sheet", %{sheet_id: ^sheet_id, reason: "written"}} = Enum.at(pushes, focus)
+
+      assert {"sheets", %{sheets: [%{sheet: %{id: ^sheet_id}, last_access: "written"}]}} =
+               Enum.at(pushes, links)
+
+      assert {"message",
+              %{message: %{content: %{"name" => "set_cells", "is_error" => false} = content}}} =
+               Enum.at(pushes, result)
+
+      assert Jason.decode!(content["content"]) == %{"version" => 2, "updated" => 1}
+
+      assert {:ok, %{"Revenue" => %{"Q1" => 1500}}} =
+               Sheets.read_cells(sheet.id, ["Revenue"], ["Q1"])
+
+      # The model saw the linked sheet's structure but no values (AI-1),
+      # then the tool's result.
+      assert [{first_messages, _tools}, {second_messages, _}] = ScriptedChatModel.calls()
+      assert [block, said] = List.last(first_messages).content
+      assert said.content == "[Alice]: Set Q1 revenue to 1500"
+
+      assert block.content ==
+               """
+               <linked_sheets>
+               - "P&L" (id: #{sheet.id}), 1 rows. Columns: Line item (text, line item), Q1 (number)
+               </linked_sheets>\
+               """
+
+      refute block.content =~ "1234"
+      assert %{role: :tool} = List.last(second_messages)
+    end
+
+    test "a rejected tool call comes back to the model, and the run goes on (AI-4)", %{
+      alice: alice,
+      conversation: conversation,
+      sheet: sheet
+    } do
+      bad_column = %{
+        name: "set_cells",
+        arguments: %{
+          "sheet_id" => sheet.id,
+          "cells" => [%{"row" => "Revenue", "column" => "Q3", "value" => 1}]
+        }
+      }
+
+      ScriptedChatModel.push([{:tool_calls, [bad_column]}, "Q3 doesn't exist."])
+      {:ok, _, socket} = join_as(alice, conversation.id)
+
+      assert_reply push(socket, "send_message", %{"text" => "Set Q3"}), :ok, %{}, 2_000
+
+      pushes = pushes_until_run_end(socket)
+
+      assert {"message", %{message: %{content: %{"is_error" => true, "content" => text}}}} =
+               Enum.find(pushes, &tool_result?/1)
+
+      assert text =~ ~s(ERROR unknown_column: column "Q3" does not exist in sheet "P&L")
+      assert text =~ "Existing columns: Line item, Q1."
+
+      refute Enum.any?(pushes, &match?({"focus_sheet", _}, &1))
+      refute Enum.any?(pushes, &match?({"status", %{status: "error"}}, &1))
+
+      assert {"message", %{message: %{content: %{"text" => "Q3 doesn't exist."}}}} =
+               pushes |> Enum.filter(&match?({"message", _}, &1)) |> List.last()
+
+      assert {:ok, %{version: 1}} = Sheets.describe(sheet.id)
+    end
+  end
+
   test "a focus_sheet event reaches the conversation's viewers (UI-4)", %{
     alice: alice,
     conversation: conversation
@@ -395,5 +526,14 @@ defmodule SpreadSheetAiWeb.ConversationChannelTest do
     end
   end
 
-  defp text(message), do: ContentPart.parts_to_string(message.content)
+  defp tool_result?({"message", %{message: %{content_type: "tool_result"}}}), do: true
+  defp tool_result?(_push), do: false
+
+  # The message's own text, without the `<linked_sheets>` block SheetTools
+  # puts in front of the latest user message.
+  defp text(message) do
+    message.content
+    |> Enum.reject(&String.starts_with?(&1.content, "<linked_sheets>"))
+    |> ContentPart.parts_to_string()
+  end
 end

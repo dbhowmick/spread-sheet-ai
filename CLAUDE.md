@@ -156,6 +156,10 @@ the AI tools all call it. Details are in `docs/backend-plan.md` §4–§5.
   effects, change-log row) → replace state → broadcast
   `{:op_applied, %{sheet_id, version, applied_op, actor, client_op_id}}`
   on `Sheets.topic(id)` (`"sheet_events:<id>"`, see `Sheets.subscribe/1`).
+- **Name-based ops (AI tools):** `Sheets.apply_named/4` takes an op that
+  names rows by label and columns by name. `Sheets.Named.resolve/2` turns
+  it into an id-based op inside the sheet server, so names are resolved
+  against the state the op is applied to.
 - **Errors** everywhere are `{:error, code_atom, message, meta}`, using
   contract §8 codes.
 - **Tests that start sheet servers must be `async: false`.** The servers
@@ -190,6 +194,20 @@ in `docs/backend-plan.md` §7.
   `Conversations.broadcast_event/2` on `"conversation_events:<id>"`.
 - **Sheet links:** `Sheets.link/3` and `Sheets.list_links/1` record which
   sheets a conversation used (`conversation_sheets`).
+- **Tools:** `Agents.Middleware.SheetTools` (last in the factory's
+  middleware) supplies the 16 sheet tools and, in `before_model/2`, puts a
+  `<linked_sheets>` block at the start of the latest user message. Sagents
+  allows only one system message, and it is fixed when the agent is built.
+  - The tools live in `Agents.Tools.{Read, Structure, Rows, Cells}`. Each
+    has `functions/0` plus one public `name(args, context)` per tool, and
+    tests call those directly (`ConversationsFixtures.tool_context/2`).
+  - `Agents.Tools.Support` holds the shared helpers:
+    - argument checks, run before calling `Sheets`;
+    - `ERROR <code>: …` text plus a hint, since ChatReqLLM drops the
+      error flag;
+    - `touch/3`, which links the sheet and broadcasts `focus_sheet` and
+      `sheets_changed` before the tool returns;
+    - the agent actor, which carries the conversation title.
 - **Tests never call a real model.** `SpreadSheetAi.Test.ScriptedChatModel`
   replies from a script:
   - `start_supervised!(ScriptedChatModel)` starts it, and `push/2` adds
