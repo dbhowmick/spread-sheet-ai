@@ -140,7 +140,9 @@ One migration per table, generated with `mix ecto.gen.migration`.
 | client_op_id | binary_id, nullable | |
 | inserted_at | utc_datetime | |
 
-**`conversation_sheets`** (session–sheet links, ST-1)
+**`conversation_sheets`** (session–sheet links, ST-1). Created in Phase 6,
+because it references `sagents_conversations`, which `mix sagents.setup`
+creates.
 | column | type | notes |
 |---|---|---|
 | id | binary_id PK | |
@@ -473,9 +475,10 @@ requires.
   in prod if it's missing, and dev logs a warning.
 - **Unverified models:** set `config :req_llm, warn_unverified_models: false`,
   since OpenRouter model ids are often missing from ReqLLM's catalog.
-- **Choosing the model:** pick the default during Phase 5 by running the
-  §8 tool suite against 2–3 candidate models, and record the choice in
-  `config/config.exs`.
+- **Choosing the model:** pick the default during Phase 8, once the tools
+  exist, by running the §8 tool scenarios against 2–3 candidate models.
+  Record the choice in `config/config.exs`. Until then, Phase 6 uses any
+  model for a plain-chat smoke test.
 
 ## 8. AI tools and context
 
@@ -495,7 +498,7 @@ each run:
   latest user message, as the Sagents middleware guide documents. In that
   case older blocks stay in the history, and Summarization handles long
   sessions.
-- **Deciding which:** a spike at the start of Phase 7 settles it.
+- **Deciding which:** a spike at the start of Phase 8 settles it.
 
 ### 8.2 Tools
 
@@ -574,19 +577,23 @@ Each phase ends with `mix precommit` passing. The milestones at M1, M2 and
 M3 are the points where the frontend can switch from mocks to the real
 backend.
 
-| Phase | Deliverables | Done when |
-|---|---|---|
-| **1. Foundations** | Scope, Presence, UserSocket and the socket-token endpoint, `Accounts.fetch_active_session/1`, config blocks | Socket connects with a valid token and is refused without one (tests) |
-| **2. Sheets data + engine** | 5 migrations, schemas and queries, `State`, `Op`, `Values`, `Engine` | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) |
-| **3. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads, links) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) |
-| **4. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** |
-| **5. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, model choice | Migrations run. An agent starts for a conversation with the fake model (test). A manual OpenRouter smoke run works in IEx |
-| **6. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Fake-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** |
-| **7. AI tools** → **M3** | SheetTools middleware, 16 tools, system prompt, linking and focus events | Tool unit tests against a real sheet. A fake-model test where a scripted tool call changes a sheet: `op_applied` reaches a sheet subscriber, and `focus_sheet` plus `sheets` reach conversation subscribers (AI-1…AI-7, ST-1…ST-3) |
-| **8. Hardening** | A manual end-to-end run with a real model and two browsers, a log review, docs | The four questions in the requirements §1 are answered, and the findings are noted in `docs/` |
+**Completed:** ⬜ means not done. When a phase is done, replace it with
+✅ and the date it finished, for example `✅ 2026-09-25`.
 
-Phases 2–4 don't depend on Sagents, and phase 5 can start alongside
-phase 3.
+| Phase | Deliverables | Done when | Completed |
+|---|---|---|---|
+| **1. Foundations** | Scope, Presence, UserSocket and the socket-token endpoint, `Accounts.fetch_active_session/1`, config blocks | Socket connects with a valid token and is refused without one (tests) | ⬜ |
+| **2. Sheets data model** | 4 migrations (`sheets`, `sheet_columns`, `sheet_rows`, `sheet_changes`), schemas and `_queries` modules, `SheetsFixtures` | Migrations run and roll back. Tests show the unique indexes hold: column names, row labels, one label column per sheet, one change per version | ⬜ |
+| **3. Sheet engine** | `State`, `Op`, `Values`, `Engine` (`create` and all 10 ops) | Engine tests cover every op and every rule in contract §6 (T-1…T-7, OP-1…OP-4) | ⬜ |
+| **4. Sheet runtime** | Persister, `Server`, `Runtime`, Registry and DynamicSupervisor, `Sheets` context (create, apply, reads) | Ops persist with version and change log. Kill-and-reload restores state. Idle stop works. A concurrent-writer test shows no lost versions (P-2…P-6) | ⬜ |
+| **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ⬜ |
+| **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ⬜ |
+| **7. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Scripted-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** | ⬜ |
+| **8. AI tools** → **M3** | SheetTools middleware, 16 tools, system prompt, linking and focus events, choosing the default model (§7.4) | Tool unit tests against a real sheet. A scripted-model test where a tool call changes a sheet: `op_applied` reaches a sheet subscriber, and `focus_sheet` plus `sheets` reach conversation subscribers (AI-1…AI-7, ST-1…ST-3). The default model is recorded in config | ⬜ |
+| **9. Hardening** | A manual end-to-end run with a real model and two browsers, a log review, docs | The four questions in the requirements §1 are answered, and the findings are noted in `docs/` | ⬜ |
+
+Phases 2–5 don't depend on Sagents, and phase 6 can start alongside
+phase 4.
 
 ## 11. Testing strategy
 
@@ -614,16 +621,16 @@ phase 3.
     stubbing `ReqLLM.stream_text` with Mimic, as the Sagents guides do.
 - **Tools:** each tool function is called directly with a context map,
   with no agent involved.
-- **Manual only:** real OpenRouter calls happen only in Phase 5 and
-  Phase 8 manual runs, never in `mix test`.
+- **Manual only:** real OpenRouter calls happen only in the manual runs of
+  Phases 6, 8 and 9, never in `mix test`.
 
 ## 12. Risks and open points
 
 | Risk | Mitigation |
 |---|---|
 | Sagents 0.x API churn | Pin `~> 0.15.1`. Keep all generated code in `agents/` and `conversations/`, and our own glue in separate modules |
-| Cheaper models are unreliable at calling tools | Strict argument definitions, error text the model can act on, bulk tools, model chosen by config, tested in Phase 5 |
-| Linked-sheet context piles up in history | Phase 7 spike (§8.1). Summarization middleware |
+| Cheaper models are unreliable at calling tools | Strict argument definitions, error text the model can act on, bulk tools, model chosen by config, tested in Phase 8 |
+| Linked-sheet context piles up in history | Phase 8 spike (§8.1). Summarization middleware |
 | Two users sending at once while idle (the Sagents race) | Treat the error as success, plus a regression test (§7.3) |
 | A turn in progress is lost if the node crashes (Sagents persists state only at lifecycle points) | Accepted for the POC. Messages already written stay visible |
 | The agent stops after 10 minutes idle even while people are viewing | Harmless: the next `send_message` restarts it from persisted state. Optionally call `AgentServer.touch/1` while viewers are present |
