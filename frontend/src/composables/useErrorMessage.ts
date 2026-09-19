@@ -31,6 +31,20 @@ const MESSAGES: Record<string, string> = {
   // ever accompanies these two.
   timeout: 'The server did not respond. Your change may not have been saved.',
   internal_error: 'Something went wrong on our end. Please try again.',
+  // Sheet ops (contract §8). These normally arrive with a server-written
+  // `message`, which the sheet store prefers; these are the fallbacks for
+  // when it doesn't.
+  invalid_op: "That change isn't valid.",
+  unknown_column: 'That column no longer exists. Reloading may help.',
+  unknown_row: 'That row no longer exists. Reloading may help.',
+  duplicate_column_name: 'A column with that name already exists.',
+  duplicate_label: 'A row with that label already exists.',
+  label_required: 'Every row needs a label.',
+  label_column_protected: "The label column can't be deleted or retyped.",
+  invalid_value: "That value doesn't match the column's type.",
+  type_conversion_failed: "Some values can't be converted to that type.",
+  invalid_position: 'That position is out of range.',
+  too_many_cells: 'That change is too large. Try splitting it up.',
   unknown: 'Something went wrong. Please try again.',
 }
 

@@ -463,6 +463,17 @@ in-memory "server" that satisfies the same interfaces:
 The mock is dev-only and tree-shaken out of production builds. It's
 retired feature by feature at M1, M2 and M3.
 
+> **Superseded for sheets (2026-09-20).** The backend reached M1 and M2 before
+> F2 started, so by the rule above the sheet mock was already retired before it
+> was ever written. F2 therefore ships **no working mock sheet server**: the
+> store talks to the real `sheet:<id>` channel, and the pure core is tested on
+> plain data, which needs no transport at all. Building it would have meant
+> porting the server's ~500 lines of op validation to TypeScript as throwaway
+> code and re-opening the §12 drift risk. The skeleton in
+> `transport/mock/index.ts` still satisfies both interfaces, so the seam
+> survives if an offline mode is ever wanted. The conversation mock is in the
+> same position for F5.
+
 ## 10. Testing
 
 Vitest with happy-dom. The tests focus on the pure core:
@@ -494,8 +505,8 @@ green.
 
 | Done | Phase | Deliverables | Done when | Backend dependency |
 |---|---|---|---|---|
-| [ ] | **F1. Foundations** | Dependencies, Vitest, `types/contract.ts`, `AppLayout` + routes, socket and transport interfaces, mock skeleton | The shell navigates between the empty views. The socket connects against the backend's Phase 1, or the mock | none (mock) |
-| [ ] | **F2. Sheet state core** | `apply-op`, `values`, `consistency`, `stores/sheets`, `useSheet`, mock sheet server | Unit tests cover contract §5.4 and §6 | none |
+| [x] | **F1. Foundations** | Dependencies, Vitest, `types/contract.ts`, `AppLayout` + routes, socket and transport interfaces, mock skeleton | The shell navigates between the empty views. The socket connects against the backend's Phase 1, or the mock | none (mock) |
+| [x] | **F2. Sheet state core** | `apply-op`, `values`, `consistency`, `stores/sheets`, `useSheet` (mock sheet server dropped — see §9) | Unit tests cover contract §5.4 and §6 | none |
 | [ ] | **F3. Read-only grid** | `useSheetTable`, `SheetGrid` (virtualized, sticky header and label), display cells, `SheetsView` + create dialog, `SheetView` | A 1,000 × 30 mock sheet scrolls smoothly. Participants and cues render from mock events | none |
 | [ ] | **F4. Editing** | Navigation, editors, local preview, rollback, structure menus, new row, delete, move, copy/paste, toolbar | Every op can be done from the UI. The mock's simulated remote user's edits show up with cues. **Switch to the real backend at M1**, and two browser windows then stay in sync | **M1** |
 | [ ] | **F5. Chat** | `stores/conversations`, `ChatPanel`, message rendering, `ConversationsView`, `WorkspaceView` with the split pane and sheet tabs | Chat works against the mock scripted agent. **Switch to the real backend at M2** | **M2** |
