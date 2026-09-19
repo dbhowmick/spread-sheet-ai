@@ -620,10 +620,18 @@ requires.
   Tests set `config :req_llm, load_dotenv: false`.
 - **Unverified models:** set `config :req_llm, warn_unverified_models: false`,
   since OpenRouter model ids are often missing from ReqLLM's catalog.
-- **Choosing the model:** pick the default during Phase 8, once the tools
-  exist, by running the §8 tool scenarios against 2–3 candidate models.
-  Record the choice in `config/config.exs`. Until then, Phase 6 uses any
-  model for a plain-chat smoke test.
+- **Choosing the model:** the default is `anthropic/claude-sonnet-5`,
+  recorded in `config/config.exs`. It was the only candidate evaluated.
+  - In Phase 8 it passed every §8 tool scenario against the dev database,
+    in one conversation:
+    - create a sheet with rows;
+    - list, open and read;
+    - set 12 cells in one call;
+    - add, retype, rename and move columns (with parallel tool calls);
+    - delete rows;
+    - recover from a deliberate unknown-column error by using the
+      `Existing columns` hint.
+  - Cheaper models can be tried later through `AI_MODEL`.
 
 ## 8. AI tools and context
 
@@ -750,7 +758,7 @@ backend.
 | **5. Sheets API** → **M1** | `SheetController`, `SheetChannel`, `SheetJSON`, participants | Channel tests: join snapshot, op → `op_applied` to all joined sockets, error reply, `snapshot`, participants (RT-1…RT-8). **The frontend can run the full sheet UI.** | ✅ 2026-09-20 |
 | **6. Sagents setup** | Dependencies, generation plus the §7.2 adaptations, `ChatModels`, `ScriptedChatModel` (§11), `conversation_sheets` migration and schema, `Sheets.link` | Migrations run. An agent starts for a conversation and replies using the scripted model (test). Link upserts work (test). A manual plain-chat smoke run against OpenRouter works in IEx | ✅ 2026-09-20 |
 | **7. Conversations API** → **M2** | `ConversationController`, `ConversationChannel`, `ConversationEvents`, `MessageJSON` | Scripted-model tests: send → message + stream + status. Two users: queued message. Cancel. Title. History reloads after the agent restarts (CS-1…CS-8). **The frontend can run chat without tools.** | ✅ 2026-09-20 |
-| **8. AI tools** → **M3** | SheetTools middleware, 16 tools, system prompt, linking and focus events, choosing the default model (§7.4) | Tool unit tests against a real sheet. A scripted-model test where a tool call changes a sheet: `op_applied` reaches a sheet subscriber, and `focus_sheet` plus `sheets` reach conversation subscribers (AI-1…AI-7, ST-1…ST-3). The default model is recorded in config | ⬜ |
+| **8. AI tools** → **M3** | SheetTools middleware, 16 tools, system prompt, linking and focus events, choosing the default model (§7.4) | Tool unit tests against a real sheet. A scripted-model test where a tool call changes a sheet: `op_applied` reaches a sheet subscriber, and `focus_sheet` plus `sheets` reach conversation subscribers (AI-1…AI-7, ST-1…ST-3). The default model is recorded in config | ✅ 2026-09-20 |
 | **9. Hardening** | A manual end-to-end run with a real model and two browsers, a log review, docs | The four questions in the requirements §1 are answered, and the findings are noted in `docs/` | ⬜ |
 
 Phases 2–5 don't depend on Sagents, and phase 6 can start alongside

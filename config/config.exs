@@ -72,9 +72,9 @@ config :spread_sheet_ai, :sheets,
   # set_cells cells / add_rows rows per op
   write_max_cells: 1_000
 
-# AI copilot models, via OpenRouter (docs/backend-plan.md §7.4). Provisional
-# until the Phase 8 model evaluation. Overridable at runtime with AI_MODEL /
-# AI_TITLE_MODEL.
+# AI copilot models, via OpenRouter (docs/backend-plan.md §7.4). The main
+# model was chosen in Phase 8, after running the §8 tool scenarios. Overridable
+# at runtime with AI_MODEL / AI_TITLE_MODEL.
 config :spread_sheet_ai, :ai,
   model: "openrouter:anthropic/claude-sonnet-5",
   title_model: "openrouter:anthropic/claude-haiku-4.5",
