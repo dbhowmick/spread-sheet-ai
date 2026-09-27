@@ -78,7 +78,9 @@ config :spread_sheet_ai, :sheets,
 config :spread_sheet_ai, :ai,
   model: "openrouter:anthropic/claude-sonnet-5",
   title_model: "openrouter:anthropic/claude-haiku-4.5",
-  max_tokens: 4096
+  # Everything the model writes in a turn counts: its thinking, its text and
+  # its tool-call arguments. Claude Sonnet 5 allows up to 128K.
+  max_tokens: 32_000
 
 # OpenRouter model ids are often missing from ReqLLM's model catalog.
 config :req_llm, warn_unverified_models: false

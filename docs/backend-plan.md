@@ -592,10 +592,10 @@ requires.
 
 ### 7.4 Model configuration (OpenRouter)
 
-- **Dependencies:** add `{:sagents, "~> 0.15.1"}`,
-  `{:langchain, "~> 0.14.1"}` and `{:req_llm, "~> 1.24"}`. LangChain is
+- **Dependencies:** add `{:sagents, "~> 0.15.3"}`,
+  `{:langchain, "~> 0.14.3"}` and `{:req_llm, "~> 1.25"}`. LangChain is
   pinned explicitly because we call it directly and Sagents only asks for
-  `>= 0.14.1`. `req_llm` is an optional dependency of LangChain, and
+  `>= 0.14.3`. `req_llm` is an optional dependency of LangChain, and
   `ChatReqLLM` only compiles when it is present.
 - **Config:**
 
@@ -603,14 +603,23 @@ requires.
   config :spread_sheet_ai, :ai,
     model: "openrouter:<vendor>/<model>",
     title_model: "openrouter:<cheap model>",
-    max_tokens: 4096
+    max_tokens: 32_000
   ```
 
-  Both models are overridable at runtime via `AI_MODEL` and
-  `AI_TITLE_MODEL`.
+  `max_tokens` covers everything the model writes in a turn: its thinking,
+  its text and its tool-call arguments. At 4096, a turn that thought at
+  length and then built a large sheet ran out partway through the tool
+  call. Both models and the limit are overridable at runtime via
+  `AI_MODEL`, `AI_TITLE_MODEL` and `AI_MAX_TOKENS`.
 - **Where the models are built:** `SpreadSheetAi.Agents.ChatModels.main/0`
-  builds `ChatReqLLM.new!(%{model: …, stream: true, max_tokens: …})`, and
-  `title/0` the title model with `stream: false`. Tests replace them (§11)
+  builds a streaming `ChatReqLLM` wrapped in
+  `SpreadSheetAi.Agents.TruncationAwareChat`, and
+  `title/0` the title model with `stream: false`. The wrapper exists because
+  a streamed OpenRouter turn that hits `max_tokens` comes back from
+  `ChatReqLLM` as `:complete` (the `[DONE]` chunk carries no finish
+  reason). It marks a turn whose output tokens reached `max_tokens` as
+  `:length`, which Sagents ends the run on (`"response_truncated"`) and
+  marks in the transcript. Tests replace them (§11)
   via `config :spread_sheet_ai, :ai, chat_model_builder: Module`, a module
   implementing the `ChatModels` behaviour (`main/0`, `title/0`).
 - **API key:** ReqLLM reads `OPENROUTER_API_KEY` itself, from the

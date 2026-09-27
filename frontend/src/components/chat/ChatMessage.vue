@@ -58,10 +58,16 @@ const STOP_TEXT: Record<string, string> = {
     <span>{{ message.content.text }}</span>
   </p>
 
-  <Reasoning v-else-if="message.content_type === 'thinking'" :default-open="false">
-    <ReasoningTrigger />
-    <ReasoningContent :content="message.content.text" />
-  </Reasoning>
+  <!-- A reply cut off while thinking ends on this, so it carries the marker. -->
+  <div v-else-if="message.content_type === 'thinking'" class="flex flex-col gap-1">
+    <Reasoning :default-open="false">
+      <ReasoningTrigger />
+      <ReasoningContent :content="message.content.text" />
+    </Reasoning>
+    <span v-if="stopReason" class="px-1 text-xs text-muted-foreground">
+      {{ STOP_TEXT[stopReason] ?? 'Cut off.' }}
+    </span>
+  </div>
 
   <div v-else class="flex flex-col gap-1" :class="item.isSelf && 'items-end'">
     <span v-if="senderName" class="px-1 text-xs font-medium text-muted-foreground">

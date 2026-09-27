@@ -14,6 +14,7 @@ defmodule SpreadSheetAi.Agents.AgentTest do
   alias Sagents.AgentServer
   alias SpreadSheetAi.Accounts.Scope
   alias SpreadSheetAi.Agents.ChatModels
+  alias SpreadSheetAi.Agents.TruncationAwareChat
   alias SpreadSheetAi.Conversations
   alias SpreadSheetAi.Test.ScriptedChatModel
 
@@ -107,7 +108,10 @@ defmodule SpreadSheetAi.Agents.AgentTest do
     end
 
     test "build OpenRouter models through ReqLLM by default", %{ai: ai} do
-      assert %ChatReqLLM{model: model, stream: true, max_tokens: max_tokens} = ChatModels.main()
+      assert %TruncationAwareChat{
+               model: %ChatReqLLM{model: model, stream: true, max_tokens: max_tokens}
+             } = ChatModels.main()
+
       assert model == ai[:model]
       assert max_tokens == ai[:max_tokens]
 

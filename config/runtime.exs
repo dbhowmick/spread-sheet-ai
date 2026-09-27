@@ -76,8 +76,16 @@ config :spread_sheet_ai, Oban,
 
 # AI model overrides (docs/backend-plan.md §7.4).
 ai_overrides =
-  [model: System.get_env("AI_MODEL"), title_model: System.get_env("AI_TITLE_MODEL")]
+  [
+    model: System.get_env("AI_MODEL"),
+    title_model: System.get_env("AI_TITLE_MODEL"),
+    max_tokens: System.get_env("AI_MAX_TOKENS")
+  ]
   |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+  |> Enum.map(fn
+    {:max_tokens, value} -> {:max_tokens, String.to_integer(value)}
+    pair -> pair
+  end)
 
 if ai_overrides != [] do
   config :spread_sheet_ai, :ai, ai_overrides

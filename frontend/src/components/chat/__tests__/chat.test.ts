@@ -123,6 +123,21 @@ describe('ChatMessage', () => {
     expect(wrapper.html()).toContain('data-state')
   })
 
+  it('marks thinking that was cut off, since the reply ends on it', () => {
+    const thinking: ThinkingMessage = {
+      id: 'm1',
+      role: 'assistant',
+      content_type: 'thinking',
+      content: { text: 'Planning 72 rows.', stop_reason: 'length' },
+      sender: null,
+      status: 'completed',
+      inserted_at: '2026-09-20T10:00:00Z',
+    }
+
+    const wrapper = mountMessage(messageItem(thinking))
+    expect(wrapper.text()).toContain('length limit')
+  })
+
   it('still shows text for a content type the contract does not name', async () => {
     // MessageJSON passes unknown types through raw.
     const exotic = {

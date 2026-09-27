@@ -187,6 +187,10 @@ in `docs/backend-plan.md` §7.
 - **Models:** `SpreadSheetAi.Agents.ChatModels` builds them from
   `config :spread_sheet_ai, :ai` (OpenRouter via `ChatReqLLM`). ReqLLM
   reads `OPENROUTER_API_KEY` from the env or from `.env` (gitignored).
+  The main model is wrapped in `Agents.TruncationAwareChat`: streamed,
+  `ChatReqLLM` reports a reply cut off by `max_tokens` as `:complete`, and
+  the wrapper turns it back into `:length` so the run ends as an error and
+  the transcript says it was cut off.
 - **Chat:** `SpreadSheetAi.Agents.Chat` sends a user's message (as
   `"[Name]: text"` to the model, with the sender in the metadata), cancels
   a turn and reads the agent's status. App events for a conversation
