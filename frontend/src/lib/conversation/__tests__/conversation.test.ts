@@ -138,6 +138,26 @@ describe('streaming', () => {
     expect(reduce(streaming, { type: 'stream_reset' }).entry.streamingText).toBe('')
   })
 
+  it('accumulates thinking beside the text, and a reset clears both', () => {
+    const streaming = joined(
+      { type: 'stream_thinking', text: 'Plan ' },
+      { type: 'stream_thinking', text: '72 rows.' },
+      { type: 'stream_delta', text: 'Done' },
+    )
+    expect(streaming.streamingThinking).toBe('Plan 72 rows.')
+    expect(streaming.streamingText).toBe('Done')
+
+    const reset = reduce(streaming, { type: 'stream_reset' }).entry
+    expect([reset.streamingThinking, reset.streamingText]).toEqual(['', ''])
+  })
+
+  it('drops streamed thinking when the run ends or the socket drops', () => {
+    const thinking = { type: 'stream_thinking', text: 'Planning' } as const
+    const ended = joined(thinking, { type: 'status', event: { status: 'error', error: 'cut off' } })
+    expect(ended.streamingThinking).toBe('')
+    expect(joined(thinking, { type: 'disconnected' }).streamingThinking).toBe('')
+  })
+
   it('closes the bubble on a run-ending status even without a reset', () => {
     const entry = joined(
       { type: 'stream_delta', text: 'partial' },

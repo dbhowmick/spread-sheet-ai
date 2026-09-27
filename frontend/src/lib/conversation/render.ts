@@ -44,9 +44,11 @@ export interface ChatToolItem {
   title: string
 }
 
+/** The reply being generated: its thinking so far, then its text so far. */
 export interface ChatStreamingItem {
   kind: 'streaming'
   key: 'streaming'
+  thinking: string
   text: string
 }
 
@@ -117,8 +119,13 @@ export function chatItems(entry: ConversationEntry, selfUserId: Uuid | null): Ch
     })
   }
 
-  if (entry.streamingText) {
-    items.push({ kind: 'streaming', key: 'streaming', text: entry.streamingText })
+  if (entry.streamingText || entry.streamingThinking) {
+    items.push({
+      kind: 'streaming',
+      key: 'streaming',
+      thinking: entry.streamingThinking,
+      text: entry.streamingText,
+    })
   }
 
   return items

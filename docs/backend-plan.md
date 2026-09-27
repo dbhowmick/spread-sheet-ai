@@ -569,7 +569,7 @@ a small state:
 
 | Sagents event (`{:agent, tag, ev}`) | Push |
 |---|---|
-| `{:llm_deltas, deltas}` | `stream_delta` with the deltas' text. Nothing when they carry no text |
+| `{:llm_deltas, deltas}` | `stream_thinking` with the deltas' thinking and `stream_delta` with their text, in the order they streamed. Nothing when they carry neither |
 | `{:display_message_saved, dm}` | `message`. An AI message (not a user's queued one) sends `stream_reset` first if streaming |
 | `{:display_message_updated, dm}` | `message_updated` |
 | `{:tool_call_identified, info}` / `{:tool_execution_update, st, info}` | `tool_status`. Skipped while `call_id` is nil (early in streaming) |

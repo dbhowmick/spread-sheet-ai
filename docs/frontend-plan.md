@@ -402,6 +402,7 @@ interface ConversationEntry {
   conversation: ConversationSummary
   messages: Message[]                       // upserted by id, in inserted_at order
   streamingText: string                     // from stream_delta; cleared on stream_reset
+  streamingThinking: string                 // from stream_thinking; cleared on stream_reset
   toolStatus: Map<callId, ToolStatusEvent>  // live progress from tool_status
   status: 'not_started' | 'idle' | 'running' | 'cancelled' | 'error'
   error: string | null
@@ -427,7 +428,7 @@ plain props.
 | `assistant` + `thinking` | `Reasoning` / `ReasoningContent` |
 | `tool_call` + matching `tool_result` | `ToolCallItem`: `Tool` + `ToolHeader :title="display_text" type="dynamic-tool" :tool-name="name" :state` + `ToolInput :input="arguments"` + `ToolOutput :output / :error-text` |
 | `notification` / `error` | A small system line, styled as muted or destructive |
-| `streamingText` | A temporary assistant `MessageResponse` at the end |
+| `streamingText` / `streamingThinking` | A temporary assistant bubble at the end: an open `Reasoning` with the thinking (shown as thinking until text starts), then a `MessageResponse` with the text |
 
 Contract tool status maps to the AI Elements `ToolUIPart['state']`:
 

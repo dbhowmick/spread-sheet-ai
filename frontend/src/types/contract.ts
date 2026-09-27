@@ -455,6 +455,8 @@ export interface ConversationMessageEvent {
 export interface ConversationStreamDeltaEvent {
   text: string
 }
+/** Same shape as `stream_delta`; the text is the AI's thinking. */
+export type ConversationStreamThinkingEvent = ConversationStreamDeltaEvent
 
 export type ToolCallStatus = 'identified' | 'executing' | 'completed' | 'failed'
 

@@ -17,6 +17,7 @@ import type {
   ConversationSheetsEvent,
   ConversationStatusEvent,
   ConversationStreamDeltaEvent,
+  ConversationStreamThinkingEvent,
   ConversationTitleEvent,
   ConversationToolStatusEvent,
   OpAppliedEvent,
@@ -158,6 +159,9 @@ export function createPhoenixConversationTransport(
       ch.on('message', (p: ConversationMessageEvent) => handlers.message(p.message))
       ch.on('message_updated', (p: ConversationMessageEvent) => handlers.messageUpdated(p.message))
       ch.on('stream_delta', (p: ConversationStreamDeltaEvent) => handlers.streamDelta(p.text))
+      ch.on('stream_thinking', (p: ConversationStreamThinkingEvent) =>
+        handlers.streamThinking(p.text),
+      )
       ch.on('stream_reset', () => handlers.streamReset())
       ch.on('tool_status', (p: ConversationToolStatusEvent) => handlers.toolStatus(p))
       ch.on('status', (p: ConversationStatusEvent) => handlers.status(p))

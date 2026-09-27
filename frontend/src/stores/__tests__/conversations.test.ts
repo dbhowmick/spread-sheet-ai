@@ -133,6 +133,14 @@ describe('channel events reach the reducer', () => {
     expect(store.entryOf('c1')?.streamingText).toBe('Hello Alice!')
   })
 
+  it('streams thinking into the entry', () => {
+    const store = useConversationsStore()
+
+    lastHandlers?.streamThinking('Planning')
+
+    expect(store.entryOf('c1')?.streamingThinking).toBe('Planning')
+  })
+
   it('records participants', () => {
     lastHandlers?.participants([alice, bob])
     expect(useConversationsStore().entryOf('c1')?.participants).toEqual([alice, bob])

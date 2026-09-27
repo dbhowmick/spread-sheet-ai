@@ -9,8 +9,9 @@ defmodule SpreadSheetAiWeb.ConversationEvents do
 
   - `:status`, the last status pushed. A status is only pushed when it
     changes: an agent shutdown, for example, arrives more than once.
-  - `:streaming?`, whether a streaming bubble is open. The next stored AI
-    message, or a status that ends the run, is preceded by `stream_reset`.
+  - `:streaming?`, whether a streaming bubble is open (streamed text or
+    thinking). The next stored AI message, or a status that ends the run,
+    is preceded by `stream_reset`.
   - `:tool_labels`, each tool call's `display_text`, which Sagents sends
     when the call is identified but not when it completes or fails.
   """
@@ -47,10 +48,19 @@ defmodule SpreadSheetAiWeb.ConversationEvents do
 
   @doc "The pushes for one agent event, and the new state."
   @spec translate(term(), state()) :: {[push()], state()}
+  # Thinking and text go out as separate pushes, in the order they streamed.
   def translate({:llm_deltas, deltas}, state) do
-    case Enum.map_join(deltas, &delta_text/1) do
-      "" -> {[], state}
-      text -> {[{"stream_delta", %{text: text}}], %{state | streaming?: true}}
+    pushes =
+      deltas
+      |> Enum.flat_map(&delta_parts/1)
+      |> Enum.chunk_by(&elem(&1, 0))
+      |> Enum.map(fn [{event, _text} | _] = parts ->
+        {event, %{text: Enum.map_join(parts, &elem(&1, 1))}}
+      end)
+
+    case pushes do
+      [] -> {[], state}
+      pushes -> {pushes, %{state | streaming?: true}}
     end
   end
 
@@ -133,7 +143,22 @@ defmodule SpreadSheetAiWeb.ConversationEvents do
   defp error_text(:error, reason), do: inspect(reason)
   defp error_text(_status, _reason), do: nil
 
-  defp delta_text(%MessageDelta{content: content}), do: content_text(content)
+  # The streamed pieces of one delta, as `{push_event, text}`. Thinking can
+  # arrive with no text (a signature, or a provider that omits it).
+  defp delta_parts(%MessageDelta{content: content}), do: content_parts(content)
+
+  defp content_parts(parts) when is_list(parts), do: Enum.flat_map(parts, &content_parts/1)
+
+  defp content_parts(%ContentPart{type: :thinking, content: text})
+       when is_binary(text) and text != "",
+       do: [{"stream_thinking", text}]
+
+  defp content_parts(content) do
+    case content_text(content) do
+      "" -> []
+      text -> [{"stream_delta", text}]
+    end
+  end
 
   defp content_text(text) when is_binary(text), do: text
   defp content_text(%ContentPart{type: :text, content: text}) when is_binary(text), do: text

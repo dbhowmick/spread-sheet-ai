@@ -75,6 +75,7 @@ export interface ConversationTransportHandlers {
   message(message: Message): void
   messageUpdated(message: Message): void
   streamDelta(text: string): void
+  streamThinking(text: string): void
   streamReset(): void
   toolStatus(event: ConversationToolStatusEvent): void
   status(event: ConversationStatusEvent): void

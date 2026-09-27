@@ -353,7 +353,8 @@ Join reply:
 | `message` | `{"message": Message}` | A stored message, from a user or the AI, or a tool call or result. Add it, or replace an existing one with the same `id`. |
 | `message_updated` | `{"message": Message}` | An existing message changed, for example a tool call finished. Replace it by `id`. |
 | `stream_delta` | `{"text": string}` | Text the AI is generating right now. Append it to a temporary "streaming" bubble. |
-| `stream_reset` | `{}` | The streamed text is now stored and will arrive as `message` events. Clear the streaming bubble. |
+| `stream_thinking` | `{"text": string}` | The AI's reasoning while it works, before or between its text. Append it to the streaming bubble's thinking. It is a summary the provider sends in bursts, and may be absent. |
+| `stream_reset` | `{}` | The streamed text and thinking are now stored and will arrive as `message` events. Clear the streaming bubble. |
 | `tool_status` | `{"call_id", "name", "display_text", "status": "identified" \| "executing" \| "completed" \| "failed"}` | Live progress of a tool call. |
 | `status` | `{"status": "idle" \| "running" \| "cancelled" \| "error", "error": string \| null}` | Agent status. |
 | `message_queued` | `{"sender": UserRef, "text": string}` | A message arrived while the AI was busy. It is handled when the current turn finishes. |

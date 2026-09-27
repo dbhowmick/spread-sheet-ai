@@ -3,6 +3,7 @@ defmodule SpreadSheetAiWeb.ConversationEventsTest do
 
   alias LangChain.LangChainError
   alias LangChain.Message
+  alias LangChain.Message.ContentPart
   alias LangChain.MessageDelta
   alias SpreadSheetAi.Conversations.DisplayMessage
   alias SpreadSheetAiWeb.ConversationEvents
@@ -62,6 +63,24 @@ defmodule SpreadSheetAiWeb.ConversationEventsTest do
 
     test "a delta with no text pushes nothing" do
       assert {[], %{streaming?: false}} = translate(@idle, {:llm_deltas, [delta(nil)]})
+    end
+
+    test "thinking streams as stream_thinking, in order with the text" do
+      deltas = [
+        delta(ContentPart.new!(%{type: :thinking, content: "Plan "})),
+        delta(ContentPart.new!(%{type: :thinking, content: "72 rows."})),
+        delta(ContentPart.text!("Done"))
+      ]
+
+      assert {[
+                {"stream_thinking", %{text: "Plan 72 rows."}},
+                {"stream_delta", %{text: "Done"}}
+              ], %{streaming?: true}} = translate(@idle, {:llm_deltas, deltas})
+    end
+
+    test "thinking with no text pushes nothing" do
+      signature = ContentPart.new!(%{type: :thinking, content: nil, options: [signature: "sig"]})
+      assert {[], %{streaming?: false}} = translate(@idle, {:llm_deltas, [delta(signature)]})
     end
 
     test "the AI's stored message closes the stream" do

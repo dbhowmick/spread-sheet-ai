@@ -64,6 +64,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       message: (message) => dispatch(id, { type: 'message', message }),
       messageUpdated: (message) => dispatch(id, { type: 'message_updated', message }),
       streamDelta: (text) => dispatch(id, { type: 'stream_delta', text }),
+      streamThinking: (text) => dispatch(id, { type: 'stream_thinking', text }),
       streamReset: () => dispatch(id, { type: 'stream_reset' }),
       toolStatus: (event) => dispatch(id, { type: 'tool_status', event }),
       status: (event) => dispatch(id, { type: 'status', event }),

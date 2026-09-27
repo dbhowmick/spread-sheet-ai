@@ -54,6 +54,8 @@ export interface ConversationEntry {
   messages: Message[]
   /** Live text from `stream_delta`. Cleared by `stream_reset`. */
   streamingText: string
+  /** Live thinking from `stream_thinking`. Cleared with `streamingText`. */
+  streamingThinking: string
   /**
    * Live tool progress by `call_id`. Only a fallback for rendering: once the
    * stored `tool_result` arrives it decides the state (see `render.ts`).
@@ -86,6 +88,7 @@ export type ConversationEvent =
   | { type: 'message'; message: Message }
   | { type: 'message_updated'; message: Message }
   | { type: 'stream_delta'; text: string }
+  | { type: 'stream_thinking'; text: string }
   | { type: 'stream_reset' }
   | { type: 'tool_status'; event: ConversationToolStatusEvent }
   | { type: 'status'; event: ConversationStatusEvent }
@@ -114,6 +117,7 @@ export function emptyEntry(): ConversationEntry {
     conversation: null,
     messages: [],
     streamingText: '',
+    streamingThinking: '',
     toolStatus: new Map(),
     agentStatus: 'not_started',
     agentError: null,
@@ -216,8 +220,14 @@ export function reduce(entry: ConversationEntry, event: ConversationEvent): Redu
     case 'stream_delta':
       return { entry: { ...entry, streamingText: entry.streamingText + event.text }, effects: [] }
 
+    case 'stream_thinking':
+      return {
+        entry: { ...entry, streamingThinking: entry.streamingThinking + event.text },
+        effects: [],
+      }
+
     case 'stream_reset':
-      return { entry: { ...entry, streamingText: '' }, effects: [] }
+      return { entry: { ...entry, ...NO_STREAM }, effects: [] }
 
     case 'tool_status':
       return {
@@ -244,7 +254,7 @@ export function reduce(entry: ConversationEntry, event: ConversationEvent): Redu
           pendingQueued: entry.pendingQueued.length ? [] : entry.pendingQueued,
           // `stream_reset` normally precedes a run-ending status; clearing here
           // too means a dropped reset can't leave a bubble open forever.
-          streamingText: ending ? '' : entry.streamingText,
+          ...(ending ? NO_STREAM : {}),
           toolStatus: ending && entry.toolStatus.size ? new Map() : entry.toolStatus,
         },
         effects:
@@ -305,9 +315,12 @@ export function reduce(entry: ConversationEntry, event: ConversationEvent): Redu
     case 'disconnected':
       // Nothing to roll back — chat has no pending-op bookkeeping. The open
       // bubble goes, because the deltas that would finish it are gone.
-      return { entry: { ...entry, streamingText: '' }, effects: [] }
+      return { entry: { ...entry, ...NO_STREAM }, effects: [] }
   }
 }
+
+/** The streaming bubble, closed. */
+const NO_STREAM = { streamingText: '', streamingThinking: '' } as const
 
 function errorText(error: string | null): string {
   return error ? `The assistant stopped: ${error}` : 'The assistant stopped unexpectedly.'

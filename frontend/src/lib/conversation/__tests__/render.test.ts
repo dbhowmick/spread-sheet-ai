@@ -169,14 +169,24 @@ describe('messages', () => {
 })
 
 describe('the streaming bubble', () => {
-  it('goes last, and only when there is text', () => {
+  it('goes last, and only when something streamed', () => {
     expect(chatItems(entryWith([text('m1', alice, 'hi')]), alice.id)).toHaveLength(1)
 
     const items = chatItems(
       entryWith([text('m1', alice, 'hi')], { streamingText: 'Thinking' }),
       alice.id,
     )
-    expect(items.at(-1)).toEqual({ kind: 'streaming', key: 'streaming', text: 'Thinking' })
+    expect(items.at(-1)).toEqual({
+      kind: 'streaming',
+      key: 'streaming',
+      thinking: '',
+      text: 'Thinking',
+    })
+  })
+
+  it('shows while only thinking has streamed', () => {
+    const items = chatItems(entryWith([], { streamingThinking: 'Planning' }), alice.id)
+    expect(items).toEqual([{ kind: 'streaming', key: 'streaming', thinking: 'Planning', text: '' }])
   })
 })
 

@@ -8,6 +8,7 @@ import {
 } from '@/components/ai-elements/conversation'
 import { Loader } from '@/components/ai-elements/loader'
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message'
+import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning'
 import {
   PromptInput,
   PromptInputFooter,
@@ -93,11 +94,18 @@ function handleSubmit(message: PromptInputMessage) {
 
         <template v-for="item in items" :key="item.key">
           <ToolCallItem v-if="item.kind === 'tool'" :item="item" />
-          <Message v-else-if="item.kind === 'streaming'" from="assistant">
-            <MessageContent>
-              <MessageResponse :content="item.text" />
-            </MessageContent>
-          </Message>
+          <template v-else-if="item.kind === 'streaming'">
+            <!-- Open and "Thinking…" until the text starts, then it folds away. -->
+            <Reasoning v-if="item.thinking" :is-streaming="!item.text">
+              <ReasoningTrigger />
+              <ReasoningContent :content="item.thinking" />
+            </Reasoning>
+            <Message v-if="item.text" from="assistant">
+              <MessageContent>
+                <MessageResponse :content="item.text" />
+              </MessageContent>
+            </Message>
+          </template>
           <ChatMessage v-else :item="item" />
         </template>
 
